@@ -304,7 +304,6 @@ export function useUnoGame(userId?: string) {
       gameRef,
       db,
       lobbyId,
-      selectColorForWild,
     ]
   );
 
@@ -371,8 +370,11 @@ export function useUnoGame(userId?: string) {
       const gameDocRef = ref(db, `lobbies/${lobbyId}/game`);
       await set(gameDocRef, newGameState);
 
-      const lobbyDocRef = ref(db, `lobbies/${lobbyId}`);
-      await set(lobbyDocRef, { status: 'active' });
+      const lobbyRef = ref(db, `lobbies/${lobbyId}`);
+      const lobbySnap = await get(lobbyRef);
+      if (lobbySnap.exists()) {
+        await set(lobbyRef, { ...lobbySnap.val(), status: 'active' });
+      }
 
       setView('game');
     },
@@ -381,17 +383,16 @@ export function useUnoGame(userId?: string) {
   
   useEffect(() => {
     if (lobbyId && lobbyPlayers && lobbyPlayers.length >= MIN_PLAYERS && db) {
-      const lobbyRef = ref(db, `lobbies/${lobbyId}`);
-      const gameIsActive = gameState?.status === 'active';
-      if (!gameIsActive) {
+        const lobbyRef = ref(db, `lobbies/${lobbyId}`);
         get(lobbyRef).then((lobbySnap) => {
-          if (lobbySnap.exists() && lobbySnap.val().hostId === userId) {
-            startGame(lobbyPlayers);
-          }
+            const lobbyData = lobbySnap.val();
+            // Only the host should start the game, and only if it's waiting
+            if (lobbyData && lobbyData.hostId === userId && lobbyData.status === 'waiting') {
+                startGame(lobbyPlayers);
+            }
         });
-      }
     }
-  }, [lobbyId, lobbyPlayers, userId, db, gameState?.status, startGame]);
+}, [lobbyId, lobbyPlayers, userId, db, startGame]);
 
   const drawCard = useCallback(async () => {
     if (
@@ -414,7 +415,7 @@ export function useUnoGame(userId?: string) {
   }, [
     gameState,
     userId,
-isProcessingTurn,
+    isProcessingTurn,
     drawCards,
     nextTurn,
     gameRef,
@@ -456,7 +457,7 @@ isProcessingTurn,
     selectColorForWild,
     resetGame,
     joinGame,
-createGame,
+    createGame,
     startGame,
   };
 }
