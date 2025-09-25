@@ -88,9 +88,7 @@ If you have only one card left, you must say "Uno". Set saidUno to true in this 
 
 Consider targeting other players with draw 2, skip or reverse if possible to maximize your chance of winning. Set targetPlayer to the name of the player you wish to target.
 
-Output your decision in JSON format:
-
-{{outputFormat schema=AIPlayerOpponentOutputSchema}}
+Output your decision in JSON format.
 `,
 });
 
@@ -101,7 +99,14 @@ const aiPlayerOpponentFlow = ai.defineFlow(
     outputSchema: AIPlayerOpponentOutputSchema,
   },
   async input => {
-    const {output} = await aiPlayerOpponentPrompt(input);
+    const {output} = await ai.generate({
+      prompt: aiPlayerOpponentPrompt.prompt,
+      model: ai.getModel('googleai/gemini-2.5-flash'),
+      input: input,
+      output: {
+        schema: AIPlayerOpponentOutputSchema,
+      }
+    });
     return output!;
   }
 );
