@@ -30,13 +30,14 @@ export type Player = {
 };
 
 export type GameState = {
+  id: string;
   players: Player[];
   drawPile: Card[];
   discardPile: Card[];
-  currentPlayerIndex: number;
+  currentPlayerId: string;
   playDirection: 'clockwise' | 'counter-clockwise';
-  isGameOver: boolean;
-  winner: Player | null;
+  status: 'waiting' | 'active' | 'finished';
+  winner: string | null;
   log: string[];
 };
 

@@ -4,34 +4,51 @@ import { useUnoGame } from '@/hooks/use-uno-game';
 import { GameLobby } from './GameLobby';
 import { GameTable } from './GameTable';
 import { GameOverDialog } from './GameOverDialog';
+import { useUser } from '@/firebase';
 
 export function GameContainer() {
-  const { view, gameState, startGame, playCard, onDrawCard, selectColorForWild, wildCardToPlay, currentPlayer, isProcessingAI, resetGame } = useUnoGame();
+  const { user } = useUser();
+  const { 
+    view, 
+    gameState, 
+    startGame, 
+    playCard, 
+    drawCard, 
+    selectColorForWild, 
+    wildCardToPlay, 
+    currentPlayer, 
+    isProcessingTurn, 
+    resetGame,
+    joinGame,
+    lobbyId,
+    createGame,
+  } = useUnoGame(user?.uid);
 
   switch (view) {
     case 'lobby':
-      return <GameLobby onStartGame={startGame} />;
+      return <GameLobby onStartGame={createGame} onJoinGame={joinGame} lobbyId={lobbyId} />;
     case 'game':
-      if (gameState) {
+      if (gameState && user) {
         return (
           <GameTable
             gameState={gameState}
             onPlayCard={playCard}
-            onDrawCard={onDrawCard}
+            onDrawCard={drawCard}
             onSelectColor={selectColorForWild}
             wildCardToPlay={wildCardToPlay}
             currentPlayer={currentPlayer}
-            isProcessingTurn={isProcessingAI}
+            isProcessingTurn={isProcessingTurn}
+            userId={user.uid}
           />
         );
       }
-      return null;
+      return <GameLobby onStartGame={createGame} onJoinGame={joinGame} lobbyId={lobbyId} />;
     case 'game-over':
         if(gameState && gameState.winner) {
-            return <GameOverDialog winner={gameState.winner} onPlayAgain={resetGame} />;
+            return <GameOverDialog winnerName={gameState.winner} onPlayAgain={resetGame} />;
         }
         return null; // or some fallback
     default:
-      return <GameLobby onStartGame={startGame} />;
+      return <GameLobby onStartGame={createGame} onJoinGame={joinGame} lobbyId={lobbyId} />;
   }
 }

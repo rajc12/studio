@@ -1,5 +1,4 @@
-
-"use client";
+'use client';
 
 import { useState, useEffect, useCallback } from 'react';
 import {
@@ -12,63 +11,125 @@ import {
   getTopCard,
   isCardPlayable,
 } from '@/lib/uno-game';
-import { aiPlayerOpponent, type AIPlayerOpponentInput, type AIPlayerOpponentOutput } from '@/ai/flows/ai-player-opponent';
 import { useToast } from './use-toast';
+import { doc, getFirestore, setDoc, deleteDoc } from 'firebase/firestore';
+import { useDoc, useCollection, useFirestore } from '@/firebase';
+import { addDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase/non-blocking-updates';
+import { collection, query, where } from 'firebase/firestore';
 
 export type GameView = 'lobby' | 'game' | 'game-over';
 
 const INITIAL_HAND_SIZE = 7;
+const MIN_PLAYERS = 2;
 
-export function useUnoGame() {
-  const [gameState, setGameState] = useState<GameState | null>(null);
+export function useUnoGame(userId?: string) {
+  const [lobbyId, setLobbyId] = useState<string | null>(null);
   const [view, setView] = useState<GameView>('lobby');
-  const [humanPlayerId, setHumanPlayerId] = useState<string>('player-0');
-  const [isProcessingAI, setIsProcessingAI] = useState(false);
   const [wildCardToPlay, setWildCardToPlay] = useState<Card | null>(null);
   const { toast } = useToast();
+  const firestore = useFirestore();
 
-  const currentPlayer = gameState ? gameState.players[gameState.currentPlayerIndex] : null;
+  const gameRef = lobbyId ? doc(firestore, 'games', lobbyId) : null;
+  const { data: gameState } = useDoc<GameState>(gameRef);
 
-  const startGame = useCallback((humanPlayerName: string, aiPlayerCount: number) => {
-    const players: Player[] = [
-      { id: 'player-0', name: humanPlayerName, hand: [], isAI: false },
-    ];
-    for (let i = 1; i <= aiPlayerCount; i++) {
-      players.push({ id: `player-${i}`, name: `AI Player ${i}`, hand: [], isAI: true });
+  const lobbyPlayersRef = lobbyId ? collection(firestore, 'lobbies', lobbyId, 'players') : null;
+  const { data: lobbyPlayers } = useCollection<Player>(lobbyPlayersRef);
+
+  const currentPlayer = gameState ? gameState.players.find(p => p.id === gameState.currentPlayerId) : null;
+  const isProcessingTurn = false; // Placeholder for now
+
+  useEffect(() => {
+    if (lobbyId && lobbyPlayers && lobbyPlayers.length >= MIN_PLAYERS) {
+        const lobbyRef = doc(firestore, 'lobbies', lobbyId);
+        const gameIsActive = gameState?.status === 'active';
+        if (!gameIsActive) {
+            getDoc(lobbyRef).then(lobbySnap => {
+                if (lobbySnap.exists() && lobbySnap.data().hostId === userId) {
+                    startGame(lobbyPlayers);
+                }
+            });
+        }
     }
+  }, [lobbyId, lobbyPlayers, userId, firestore, gameState]);
+
+
+  const createGame = async (playerName: string) => {
+    if (!userId) return;
+    const newLobbyId = doc(collection(firestore, 'lobbies')).id;
+    setLobbyId(newLobbyId);
+
+    const hostPlayer: Player = { id: userId, name: playerName, hand: [], isAI: false };
+    
+    // Create lobby document
+    const lobbyRef = doc(firestore, 'lobbies', newLobbyId);
+    await setDocumentNonBlocking(lobbyRef, {
+      id: newLobbyId,
+      createdAt: new Date().toISOString(),
+      hostId: userId,
+      status: 'waiting'
+    });
+
+    // Add host to players subcollection
+    const playerRef = doc(firestore, 'lobbies', newLobbyId, 'players', userId);
+    await setDocumentNonBlocking(playerRef, hostPlayer);
+  };
+
+  const joinGame = async (roomCode: string, playerName: string) => {
+    if (!userId) return;
+    
+    const newPlayer: Player = { id: userId, name: playerName, hand: [], isAI: false };
+    const playerRef = doc(firestore, 'lobbies', roomCode, 'players', userId);
+    await setDocumentNonBlocking(playerRef, newPlayer);
+    setLobbyId(roomCode);
+  };
+
+  const startGame = useCallback(async (players: Player[]) => {
+    if (!lobbyId) return;
 
     const shuffledDeck = shuffle(createDeck());
     
-    // Deal cards
     players.forEach(player => {
       player.hand = shuffledDeck.splice(0, INITIAL_HAND_SIZE);
     });
 
-    // Find the first card that is not a wild card to start the discard pile
     let firstCardIndex = shuffledDeck.findIndex(c => !c.isWild);
     if (firstCardIndex === -1) {
-      // Highly unlikely, but if the deck is all wild cards, restart
-      startGame(humanPlayerName, aiPlayerCount);
-      return;
+      // Reshuffle and try again if no non-wild card is found.
+      const newDeck = shuffle(createDeck());
+      players.forEach(p => { p.hand = newDeck.splice(0, INITIAL_HAND_SIZE) });
+      firstCardIndex = newDeck.findIndex(c => !c.isWild);
+      if (firstCardIndex === -1) {
+        // Fallback to any card if still no non-wild card found.
+        firstCardIndex = 0;
+      }
     }
     const firstCard = shuffledDeck.splice(firstCardIndex, 1)[0];
 
-    setGameState({
+    const newGameState: GameState = {
+      id: lobbyId,
       players,
       drawPile: shuffledDeck,
       discardPile: [firstCard],
-      currentPlayerIndex: 0,
+      currentPlayerId: players[0].id,
       playDirection: 'clockwise',
-      isGameOver: false,
+      status: 'active',
       winner: null,
       log: [`Game started! ${players[0].name}'s turn.`],
-    });
-    setView('game');
-  }, []);
+    };
 
+    const gameDocRef = doc(firestore, 'games', lobbyId);
+    await setDocumentNonBlocking(gameDocRef, newGameState);
+    
+    const lobbyDocRef = doc(firestore, 'lobbies', lobbyId);
+    await setDocumentNonBlocking(lobbyDocRef, { status: 'active' }, { merge: true });
+
+    setView('game');
+  }, [lobbyId, firestore]);
+  
   const nextTurn = useCallback((state: GameState, steps = 1): GameState => {
-    const { players, playDirection, currentPlayerIndex } = state;
+    const { players, playDirection, currentPlayerId } = state;
     const numPlayers = players.length;
+    const currentPlayerIndex = players.findIndex(p => p.id === currentPlayerId);
     let nextIndex: number;
 
     if (playDirection === 'clockwise') {
@@ -80,19 +141,22 @@ export function useUnoGame() {
     const nextPlayer = players[nextIndex];
     return {
       ...state,
-      currentPlayerIndex: nextIndex,
+      currentPlayerId: nextPlayer.id,
       log: [...state.log, `${nextPlayer.name}'s turn.`],
     };
   }, []);
   
-  const drawCards = useCallback((playerIndex: number, numCards: number, state: GameState): GameState => {
+  const drawCards = useCallback((playerId: string, numCards: number, state: GameState): GameState => {
     let { drawPile, discardPile, players } = state;
+    const playerIndex = players.findIndex(p => p.id === playerId);
+    if (playerIndex === -1) return state;
+
     const player = players[playerIndex];
     const drawnCards: Card[] = [];
 
     for (let i = 0; i < numCards; i++) {
       if (drawPile.length === 0) {
-        if (discardPile.length <= 1) break; // Not enough cards to replenish
+        if (discardPile.length <= 1) break;
         const newDrawPile = shuffle(discardPile.slice(0, -1));
         drawPile = newDrawPile;
         discardPile = [getTopCard(discardPile)];
@@ -111,29 +175,31 @@ export function useUnoGame() {
 
   const applyCardEffect = useCallback((card: Card, state: GameState): GameState => {
     let newState = { ...state };
-    const currentPlayer = newState.players[newState.currentPlayerIndex];
+    const currentPlayer = newState.players.find(p => p.id === newState.currentPlayerId);
+    if (!currentPlayer) return newState;
+
     let steps = 1;
 
     switch (card.value) {
       case 'skip':
         steps = 2;
-        toast({ title: 'Player Skipped!', description: `${newState.players[nextTurn(newState).currentPlayerIndex].name} was skipped.` });
+        toast({ title: 'Player Skipped!', description: `${newState.players.find(p=>p.id === nextTurn(newState).currentPlayerId)?.name} was skipped.` });
         break;
       case 'reverse':
         newState.playDirection = newState.playDirection === 'clockwise' ? 'counter-clockwise' : 'clockwise';
         toast({ title: 'Direction Reversed!', description: `Play direction is now ${newState.playDirection}.` });
         break;
       case 'draw2':
-        const nextPlayerIndexD2 = nextTurn(newState).currentPlayerIndex;
-        newState = drawCards(nextPlayerIndexD2, 2, newState);
+        const nextPlayerIdD2 = nextTurn(newState).currentPlayerId;
+        newState = drawCards(nextPlayerIdD2, 2, newState);
         steps = 2;
-        toast({ title: 'Draw 2!', description: `${newState.players[nextPlayerIndexD2].name} draws 2 cards and is skipped.` });
+        toast({ title: 'Draw 2!', description: `${newState.players.find(p=>p.id === nextPlayerIdD2)?.name} draws 2 cards and is skipped.` });
         break;
       case 'wildDraw4':
-        const nextPlayerIndexD4 = nextTurn(newState).currentPlayerIndex;
-        newState = drawCards(nextPlayerIndexD4, 4, newState);
+        const nextPlayerIdD4 = nextTurn(newState).currentPlayerId;
+        newState = drawCards(nextPlayerIdD4, 4, newState);
         steps = 2;
-        toast({ title: 'Wild Draw 4!', description: `${newState.players[nextPlayerIndexD4].name} draws 4 cards and is skipped.` });
+        toast({ title: 'Wild Draw 4!', description: `${newState.players.find(p=>p.id === nextPlayerIdD4)?.name} draws 4 cards and is skipped.` });
         break;
     }
     
@@ -142,191 +208,122 @@ export function useUnoGame() {
     return nextTurn(newState, steps);
   }, [drawCards, nextTurn, toast]);
 
-  const selectColorForWild = useCallback((color: Color) => {
-    if (!wildCardToPlay) return;
+  const selectColorForWild = useCallback(async (color: Color) => {
+    if (!wildCardToPlay || !gameState || !userId) return;
 
-    setGameState(prevState => {
-      if (!prevState) return prevState;
+    const player = gameState.players.find(p => p.id === userId);
+    if (!player) return;
+    
+    const cardToPlay: Card = { ...wildCardToPlay, chosenColor: color };
+    
+    const newHand = player.hand.filter(c => c.value !== wildCardToPlay.value || c.color !== wildCardToPlay.color);
+    const playerIndex = gameState.players.findIndex(p => p.id === userId);
+    const newPlayers = [...gameState.players];
+    newPlayers[playerIndex] = { ...player, hand: newHand };
 
-      const playerIndex = prevState.currentPlayerIndex;
-      const player = prevState.players[playerIndex];
-      
-      // If the AI is making this choice, it might already be in the process of its turn.
-      // We check if it is still the AI's turn before proceeding.
-      if (player.isAI && prevState.currentPlayerIndex !== playerIndex) {
-          // It's not the AI's turn anymore, so we shouldn't proceed.
-          // This can happen if the game state updated while the AI was "thinking"
-          setWildCardToPlay(null);
-          return prevState;
-      }
+    let newState: GameState = {
+      ...gameState,
+      players: newPlayers,
+      discardPile: [...gameState.discardPile, cardToPlay],
+    };
+    
+    setWildCardToPlay(null);
+    toast({title: 'Color Chosen', description: `${player.name} chose ${color}.`});
 
-      const cardToPlay: Card = { ...wildCardToPlay, chosenColor: color };
+    if (newHand.length === 0) {
+      newState = { ...newState, status: 'finished', winner: player.name, log: [...newState.log, `${player.name} wins!`] };
+    } else {
+      newState = applyCardEffect(cardToPlay, newState);
+    }
+    
+    if (gameRef) await setDocumentNonBlocking(gameRef, newState);
 
-      const newHand = player.hand.filter(c => c.value !== wildCardToPlay.value || c.color !== wildCardToPlay.color);
-      const newPlayers = [...prevState.players];
-      newPlayers[playerIndex] = { ...player, hand: newHand };
+  }, [wildCardToPlay, gameState, userId, applyCardEffect, toast, gameRef]);
 
-      const newState: GameState = {
-        ...prevState,
-        players: newPlayers,
-        discardPile: [...prevState.discardPile, cardToPlay],
-      };
-      
-      setWildCardToPlay(null);
-      
-      if (!player.isAI) {
-        toast({title: 'Color Chosen', description: `${player.name} chose ${color}.`});
-      }
+  const playCard = useCallback(async (card: Card) => {
+    if (!gameState || gameState.isGameOver || gameState.currentPlayerId !== userId) return;
 
-      if (newHand.length === 0) {
-        return { ...newState, isGameOver: true, winner: player, log: [...newState.log, `${player.name} wins!`] };
-      }
+    const player = gameState.players.find(p => p.id === userId);
+    if(!player) return;
+    
+    const topCard = getTopCard(gameState.discardPile);
+    
+    if (!isCardPlayable(card, topCard)) {
+      toast({ title: "Invalid Move", description: "You can't play that card.", variant: "destructive" });
+      return;
+    }
+    
+    if (card.isWild) {
+      setWildCardToPlay(card);
+      return;
+    }
 
-      return applyCardEffect(cardToPlay, newState);
-    });
-  }, [wildCardToPlay, applyCardEffect, toast]);
+    const newHand = player.hand.filter(c => c !== card);
+    const playerIndex = gameState.players.findIndex(p => p.id === userId);
+    const newPlayers = [...gameState.players];
+    newPlayers[playerIndex] = { ...player, hand: newHand };
 
-  const playCard = useCallback((card: Card, playerIndex: number) => {
-    setGameState(prevState => {
-      if (!prevState || prevState.isGameOver || prevState.currentPlayerIndex !== playerIndex) return prevState;
+    let newState: GameState = {
+      ...gameState,
+      players: newPlayers,
+      discardPile: [...gameState.discardPile, card],
+    };
 
-      const player = prevState.players[playerIndex];
-      const topCard = getTopCard(prevState.discardPile);
-      
-      if (!isCardPlayable(card, topCard)) {
-        toast({ title: "Invalid Move", description: "You can't play that card.", variant: "destructive" });
-        return prevState;
-      }
-      
-      if (card.isWild) {
-        setWildCardToPlay(card);
-        // This is a special case for AI players. Human players select color via UI.
-        if (player.isAI) {
-          const colorsInHand = player.hand.filter(c => !c.isWild).map(c => c.color);
-          const mostCommonColor = colorsInHand.sort((a,b) => colorsInHand.filter(v => v===a).length - colorsInHand.filter(v => v===b).length).pop() || 'blue';
-          selectColorForWild(mostCommonColor);
-        }
-        return prevState;
-      }
-
-      const newHand = player.hand.filter(c => c !== card);
-      const newPlayers = [...prevState.players];
-      newPlayers[playerIndex] = { ...player, hand: newHand };
-
-      const newState: GameState = {
-        ...prevState,
-        players: newPlayers,
-        discardPile: [...prevState.discardPile, card],
-      };
-
-      if (newHand.length === 0) {
-        return { ...newState, isGameOver: true, winner: player, log: [...newState.log, `${player.name} wins!`] };
-      }
-      
+    if (newHand.length === 0) {
+      newState = { ...newState, status: 'finished', winner: player.name, log: [...newState.log, `${player.name} wins!`] };
+    } else {
       if (newHand.length === 1) {
         toast({ title: "UNO!", description: `${player.name} has one card left!` });
       }
-
-      return applyCardEffect(card, newState);
-    });
-  }, [applyCardEffect, toast, selectColorForWild]);
-
-  const onDrawCard = useCallback((playerIndex: number) => {
-    setGameState(prevState => {
-      if (!prevState || prevState.isGameOver || prevState.currentPlayerIndex !== playerIndex) return prevState;
-      
-      const newState = drawCards(playerIndex, 1, prevState);
-      return nextTurn(newState);
-    });
-  }, [drawCards, nextTurn]);
-
-  const runAIPlayer = useCallback(async (player: Player, state: GameState) => {
-    setIsProcessingAI(true);
-
-    const nextPlayer = state.players[nextTurn(state, 1).currentPlayerIndex];
-
-    const input: AIPlayerOpponentInput = {
-      playerName: player.name,
-      gameState: {
-        topCard: getTopCard(state.discardPile),
-        currentPlayerHand: player.hand,
-        nextPlayer: nextPlayer.name,
-        playDirection: state.playDirection,
-        players: state.players.reduce((acc, p) => {
-          acc[p.name] = { name: p.name, cardCount: p.hand.length };
-          return acc;
-        }, {} as Record<string, {name: string; cardCount: number}>),
-      }
-    };
-
-    try {
-      const output: AIPlayerOpponentOutput = await aiPlayerOpponent(input);
-      
-      // Simulate AI "thinking" time
-      await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000));
-      
-      setGameState(currentState => {
-        if (!currentState || currentState.currentPlayerIndex !== state.currentPlayerIndex || currentState.isGameOver) {
-          // Game state has changed while AI was thinking, abort action.
-          return currentState;
-        }
-
-        if (output.cardToPlay) {
-          const cardToPlayInHand = currentState.players[currentState.currentPlayerIndex].hand.find(c => 
-            c.value === output.cardToPlay?.value && 
-            (c.color === output.cardToPlay.color || c.isWild)
-          );
-          
-          if (cardToPlayInHand && isCardPlayable(cardToPlayInHand, getTopCard(currentState.discardPile))) {
-            toast({ title: `AI plays a card`, description: `${player.name} played a ${cardToPlayInHand.value}` });
-            playCard(cardToPlayInHand, currentState.currentPlayerIndex);
-          } else {
-             onDrawCard(currentState.currentPlayerIndex);
-          }
-        } else {
-          toast({ title: `AI draws a card`, description: `${player.name} is drawing a card.` });
-          onDrawCard(currentState.currentPlayerIndex);
-        }
-        return currentState; // playCard and onDrawCard will trigger their own re-renders with the new state
-      });
-
-    } catch(e) {
-       console.error("AI Error:", e);
-       toast({ title: "AI Error", description: "The AI opponent encountered an error and will draw a card.", variant: "destructive" });
-       onDrawCard(state.currentPlayerIndex);
-    } finally {
-        setIsProcessingAI(false);
+      newState = applyCardEffect(card, newState);
     }
-  }, [playCard, onDrawCard, nextTurn, toast]);
-  
-  // Game loop effect
+    
+    if(gameRef) await setDocumentNonBlocking(gameRef, newState);
+  }, [gameState, userId, applyCardEffect, toast, gameRef]);
+
+  const drawCard = useCallback(async () => {
+    if (!gameState || gameState.isGameOver || gameState.currentPlayerId !== userId) return;
+    
+    let newState = drawCards(userId, 1, gameState);
+    newState = nextTurn(newState);
+
+    if(gameRef) await setDocumentNonBlocking(gameRef, newState);
+  }, [gameState, userId, drawCards, nextTurn, gameRef]);
+
   useEffect(() => {
-    if (!gameState || gameState.isGameOver || isProcessingAI) return;
-
-    const player = gameState.players[gameState.currentPlayerIndex];
-    if (player.isAI) {
-      runAIPlayer(player, gameState);
+    if (gameState?.status === 'finished') {
+      setView('game-over');
+    } else if (gameState?.status === 'active') {
+      setView('game');
+    } else {
+      setView('lobby');
     }
-  }, [gameState, isProcessingAI, runAIPlayer]);
+  }, [gameState?.status]);
   
-  const resetGame = () => {
-    setGameState(null);
+  const resetGame = async () => {
+    if(lobbyId) {
+        const lobbyRef = doc(firestore, 'lobbies', lobbyId);
+        await deleteDoc(lobbyRef);
+        const gameDocRef = doc(firestore, 'games', lobbyId);
+        await deleteDoc(gameDocRef);
+    }
+    setLobbyId(null);
     setView('lobby');
   };
 
   return {
     gameState,
     view,
-    humanPlayerId,
     currentPlayer,
-    isProcessingAI,
+    isProcessingTurn,
     wildCardToPlay,
-    startGame,
     playCard,
-    onDrawCard,
+    drawCard,
     selectColorForWild,
     resetGame,
+    joinGame,
+    createGame,
+    lobbyId,
+    startGame,
   };
 }
-
-    

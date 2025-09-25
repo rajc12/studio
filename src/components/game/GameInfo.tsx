@@ -31,6 +31,10 @@ export function GameInfo({ gameState, currentPlayer }: GameInfoProps) {
                     <span>Direction:</span>
                     <span className="capitalize">{gameState.playDirection}</span>
                 </div>
+                 <div className="flex items-center gap-2">
+                    <span>Room:</span>
+                    <span className="font-bold">{gameState.id}</span>
+                </div>
             </div>
         </div>
     );

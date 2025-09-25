@@ -4,8 +4,6 @@ import { type GameState, type Player, type Card, type Color } from '@/lib/uno-ga
 import { PlayerHand } from './PlayerHand';
 import { Opponent } from './Opponent';
 import { UnoCard } from './UnoCard';
-import { Button } from '../ui/button';
-import { ChevronRight } from 'lucide-react';
 import { ColorPicker } from './ColorPicker';
 import { GameInfo } from './GameInfo';
 import { GameActions } from './GameActions';
@@ -13,12 +11,13 @@ import { GameChat } from './GameChat';
 
 interface GameTableProps {
   gameState: GameState;
-  onPlayCard: (card: Card, playerIndex: number) => void;
-  onDrawCard: (playerIndex: number) => void;
+  onPlayCard: (card: Card) => void;
+  onDrawCard: () => void;
   onSelectColor: (color: Color) => void;
   wildCardToPlay: Card | null;
   currentPlayer: Player | null;
   isProcessingTurn: boolean;
+  userId: string;
 }
 
 export function GameTable({
@@ -29,9 +28,10 @@ export function GameTable({
   wildCardToPlay,
   currentPlayer,
   isProcessingTurn,
+  userId,
 }: GameTableProps) {
-  const humanPlayer = gameState.players[0];
-  const opponents = gameState.players.slice(1);
+  const humanPlayer = gameState.players.find(p => p.id === userId);
+  const opponents = gameState.players.filter(p => p.id !== userId);
   const topCard = gameState.discardPile[gameState.discardPile.length - 1];
 
   const getOpponentPosition = (index: number, total: number) => {
@@ -49,12 +49,16 @@ export function GameTable({
     return '';
   };
   
-  const isHumanTurn = currentPlayer?.id === humanPlayer.id && !isProcessingTurn;
+  const isMyTurn = currentPlayer?.id === userId && !isProcessingTurn;
+
+  if (!humanPlayer) {
+    return <div>Joining game...</div>
+  }
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-background p-4 flex flex-col perspective-1000">
       <GameInfo gameState={gameState} currentPlayer={currentPlayer} />
-      <GameChat />
+      <GameChat lobbyId={gameState.id} userId={userId} />
 
       {opponents.map((opponent, index) => (
         <div key={opponent.id} className={`absolute ${getOpponentPosition(index, opponents.length)}`}>
@@ -66,8 +70,8 @@ export function GameTable({
         {/* Draw Pile */}
         <div className="relative">
           <button 
-            onClick={() => isHumanTurn && onDrawCard(0)}
-            disabled={!isHumanTurn}
+            onClick={() => isMyTurn && onDrawCard()}
+            disabled={!isMyTurn}
             className="rounded-lg transition-transform duration-300 hover:scale-105 disabled:cursor-not-allowed"
           >
             <UnoCard isFaceDown />
@@ -84,12 +88,12 @@ export function GameTable({
       </div>
       
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 w-full flex justify-center">
-         <PlayerHand player={humanPlayer} onPlayCard={(card) => onPlayCard(card, 0)} isMyTurn={isHumanTurn} topCard={topCard} />
+         <PlayerHand player={humanPlayer} onPlayCard={onPlayCard} isMyTurn={isMyTurn} topCard={topCard} />
       </div>
 
-      <GameActions onDrawCard={() => onDrawCard(0)} isMyTurn={isHumanTurn} />
+      <GameActions onDrawCard={onDrawCard} isMyTurn={isMyTurn} />
 
-      {wildCardToPlay && currentPlayer?.id === humanPlayer.id && (
+      {wildCardToPlay && currentPlayer?.id === userId && (
         <ColorPicker onSelectColor={onSelectColor} />
       )}
     </div>
