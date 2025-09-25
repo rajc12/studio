@@ -11,10 +11,11 @@ interface PlayerHandProps {
 }
 
 export function PlayerHand({ player, onPlayCard, isMyTurn, topCard }: PlayerHandProps) {
+  const hand = player.hand || [];
   const cardWidth = 96; // Corresponds to w-24
   const overlap = 48; // Overlap by half
-  const totalWidth = player.hand.length > 0 
-    ? (player.hand.length - 1) * (cardWidth - overlap) + cardWidth
+  const totalWidth = hand.length > 0 
+    ? (hand.length - 1) * (cardWidth - overlap) + cardWidth
     : 0;
 
   return (
@@ -26,7 +27,7 @@ export function PlayerHand({ player, onPlayCard, isMyTurn, topCard }: PlayerHand
       }}
     >
       <div className="relative" style={{ width: `${totalWidth}px`, height: '144px' }}>
-        {player.hand.map((card, index) => {
+        {hand.map((card, index) => {
           const playable = isMyTurn && isCardPlayable(card, topCard);
           return (
             <button

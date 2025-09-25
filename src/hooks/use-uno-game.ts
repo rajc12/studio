@@ -211,6 +211,7 @@ export function useUnoGame(userId?: string) {
       if (newHand.length === 0) {
         newState = {
           ...newState,
+          players: newPlayers,
           status: 'finished',
           winner: player.name,
           log: [...(newState.log || []), `${player.name} wins!`],
@@ -278,6 +279,7 @@ export function useUnoGame(userId?: string) {
       if (newHand.length === 0) {
         newState = {
           ...newState,
+          players: newPlayers,
           status: 'finished',
           winner: player.name,
           log: [...(newState.log || []), `${player.name} wins!`],
@@ -304,6 +306,7 @@ export function useUnoGame(userId?: string) {
       gameRef,
       db,
       lobbyId,
+      selectColorForWild,
     ]
   );
 

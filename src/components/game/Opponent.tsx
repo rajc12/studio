@@ -11,6 +11,7 @@ interface OpponentProps {
 }
 
 export function Opponent({ player, isCurrentPlayer }: OpponentProps) {
+  const hand = player.hand || [];
   return (
     <div className={cn(
       "flex flex-col items-center gap-2 p-2 rounded-lg transition-all duration-300",
@@ -23,12 +24,12 @@ export function Opponent({ player, isCurrentPlayer }: OpponentProps) {
         <span className="font-semibold text-card-foreground">{player.name}</span>
       </div>
       <div className="flex -space-x-12">
-        {player.hand.slice(0, 5).map((_, index) => (
+        {hand.slice(0, 5).map((_, index) => (
           <UnoCard key={index} isFaceDown className="shadow-md" />
         ))}
-        {player.hand.length > 5 && (
+        {hand.length > 5 && (
             <div className="w-24 h-36 rounded-lg bg-gray-800 flex items-center justify-center text-white font-bold text-lg">
-                +{player.hand.length - 5}
+                +{hand.length - 5}
             </div>
         )}
       </div>
