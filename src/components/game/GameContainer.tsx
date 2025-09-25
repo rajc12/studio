@@ -39,6 +39,7 @@ export function GameContainer() {
             currentPlayer={currentPlayer}
             isProcessingTurn={isProcessingTurn}
             userId={user.uid}
+            lobbyId={lobbyId}
           />
         );
       }

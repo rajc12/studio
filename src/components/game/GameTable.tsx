@@ -18,6 +18,7 @@ interface GameTableProps {
   currentPlayer: Player | null;
   isProcessingTurn: boolean;
   userId: string;
+  lobbyId: string | null;
 }
 
 export function GameTable({
@@ -29,6 +30,7 @@ export function GameTable({
   currentPlayer,
   isProcessingTurn,
   userId,
+  lobbyId,
 }: GameTableProps) {
   const humanPlayer = gameState.players.find(p => p.id === userId);
   const opponents = gameState.players.filter(p => p.id !== userId);
@@ -57,8 +59,8 @@ export function GameTable({
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-background p-4 flex flex-col perspective-1000">
-      <GameInfo gameState={gameState} currentPlayer={currentPlayer} />
-      <GameChat lobbyId={gameState.id} userId={userId} />
+      <GameInfo gameState={gameState} currentPlayer={currentPlayer} lobbyId={lobbyId} />
+      {lobbyId && <GameChat lobbyId={lobbyId} userId={userId} />}
 
       {opponents.map((opponent, index) => (
         <div key={opponent.id} className={`absolute ${getOpponentPosition(index, opponents.length)}`}>

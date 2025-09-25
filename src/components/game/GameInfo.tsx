@@ -6,9 +6,10 @@ import { ArrowLeftRight, Repeat, User, Users } from "lucide-react";
 interface GameInfoProps {
     gameState: GameState;
     currentPlayer: Player | null;
+    lobbyId: string | null;
 }
 
-export function GameInfo({ gameState, currentPlayer }: GameInfoProps) {
+export function GameInfo({ gameState, currentPlayer, lobbyId }: GameInfoProps) {
     const turnDirectionIcon = gameState.playDirection === 'clockwise'
         ? <Repeat className="w-4 h-4" />
         : <ArrowLeftRight className="w-4 h-4" />;
@@ -33,7 +34,7 @@ export function GameInfo({ gameState, currentPlayer }: GameInfoProps) {
                 </div>
                  <div className="flex items-center gap-2">
                     <span>Room:</span>
-                    <span className="font-bold">{gameState.id}</span>
+                    <span className="font-bold">{lobbyId}</span>
                 </div>
             </div>
         </div>

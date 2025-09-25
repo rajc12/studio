@@ -12,10 +12,10 @@ import {
   isCardPlayable,
 } from '@/lib/uno-game';
 import { useToast } from './use-toast';
-import { doc, getFirestore, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, deleteDoc } from 'firebase/firestore';
 import { useDoc, useCollection, useFirestore, useMemoFirebase } from '@/firebase';
-import { addDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase/non-blocking-updates';
-import { collection, query, where } from 'firebase/firestore';
+import { setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase/non-blocking-updates';
+
 
 export type GameView = 'lobby' | 'game' | 'game-over';
 
@@ -29,103 +29,15 @@ export function useUnoGame(userId?: string) {
   const { toast } = useToast();
   const firestore = useFirestore();
 
-  const gameRef = useMemoFirebase(() => (lobbyId ? doc(firestore, 'games', lobbyId) : null), [lobbyId, firestore]);
+  const gameRef = useMemoFirebase(() => (lobbyId ? doc(firestore, 'lobbies', lobbyId, 'games', lobbyId) : null), [lobbyId, firestore]);
   const { data: gameState } = useDoc<GameState>(gameRef);
 
-  const lobbyPlayersRef = useMemoFirebase(() => (lobbyId ? collection(firestore, 'lobbies', lobbyId, 'players') : null), [lobbyId, firestore]);
+  const lobbyPlayersRef = useMemoFirebase(() => (lobbyId ? collection(firestore, 'lobbies', lobbyId, 'players') : null), [lobbyId]);
   const { data: lobbyPlayers } = useCollection<Player>(lobbyPlayersRef);
-
-  const currentPlayer = gameState ? gameState.players.find(p => p.id === gameState.currentPlayerId) : null;
-  const isProcessingTurn = false; // Placeholder for now
-
-  useEffect(() => {
-    if (lobbyId && lobbyPlayers && lobbyPlayers.length >= MIN_PLAYERS) {
-        const lobbyRef = doc(firestore, 'lobbies', lobbyId);
-        const gameIsActive = gameState?.status === 'active';
-        if (!gameIsActive) {
-            getDoc(lobbyRef).then(lobbySnap => {
-                if (lobbySnap.exists() && lobbySnap.data().hostId === userId) {
-                    startGame(lobbyPlayers);
-                }
-            });
-        }
-    }
-  }, [lobbyId, lobbyPlayers, userId, firestore, gameState]);
-
-
-  const createGame = async (playerName: string) => {
-    if (!userId) return;
-    const newLobbyId = doc(collection(firestore, 'lobbies')).id;
-    setLobbyId(newLobbyId);
-
-    const hostPlayer: Player = { id: userId, name: playerName, hand: [], isAI: false };
-    
-    // Create lobby document
-    const lobbyRef = doc(firestore, 'lobbies', newLobbyId);
-    setDocumentNonBlocking(lobbyRef, {
-      id: newLobbyId,
-      createdAt: new Date().toISOString(),
-      hostId: userId,
-      status: 'waiting'
-    }, { merge: true });
-
-    // Add host to players subcollection
-    const playerRef = doc(firestore, 'lobbies', newLobbyId, 'players', userId);
-    setDocumentNonBlocking(playerRef, hostPlayer, { merge: true });
-  };
-
-  const joinGame = async (roomCode: string, playerName: string) => {
-    if (!userId) return;
-    
-    const newPlayer: Player = { id: userId, name: playerName, hand: [], isAI: false };
-    const playerRef = doc(firestore, 'lobbies', roomCode, 'players', userId);
-    setDocumentNonBlocking(playerRef, newPlayer, { merge: true });
-    setLobbyId(roomCode);
-  };
-
-  const startGame = useCallback(async (players: Player[]) => {
-    if (!lobbyId) return;
-
-    const shuffledDeck = shuffle(createDeck());
-    
-    players.forEach(player => {
-      player.hand = shuffledDeck.splice(0, INITIAL_HAND_SIZE);
-    });
-
-    let firstCardIndex = shuffledDeck.findIndex(c => !c.isWild);
-    if (firstCardIndex === -1) {
-      // Reshuffle and try again if no non-wild card is found.
-      const newDeck = shuffle(createDeck());
-      players.forEach(p => { p.hand = newDeck.splice(0, INITIAL_HAND_SIZE) });
-      firstCardIndex = newDeck.findIndex(c => !c.isWild);
-      if (firstCardIndex === -1) {
-        // Fallback to any card if still no non-wild card found.
-        firstCardIndex = 0;
-      }
-    }
-    const firstCard = shuffledDeck.splice(firstCardIndex, 1)[0];
-
-    const newGameState: GameState = {
-      id: lobbyId,
-      players,
-      drawPile: shuffledDeck,
-      discardPile: [firstCard],
-      currentPlayerId: players[0].id,
-      playDirection: 'clockwise',
-      status: 'active',
-      winner: null,
-      log: [`Game started! ${players[0].name}'s turn.`],
-    };
-
-    const gameDocRef = doc(firestore, 'games', lobbyId);
-    setDocumentNonBlocking(gameDocRef, newGameState, { merge: true });
-    
-    const lobbyDocRef = doc(firestore, 'lobbies', lobbyId);
-    setDocumentNonBlocking(lobbyDocRef, { status: 'active' }, { merge: true });
-
-    setView('game');
-  }, [lobbyId, firestore]);
   
+  const currentPlayer = gameState ? gameState.players.find(p => p.id === gameState.currentPlayerId) : null;
+  const isProcessingTurn = gameState?.isProcessingTurn ?? false;
+
   const nextTurn = useCallback((state: GameState, steps = 1): GameState => {
     const { players, playDirection, currentPlayerId } = state;
     const numPlayers = players.length;
@@ -145,7 +57,7 @@ export function useUnoGame(userId?: string) {
       log: [...state.log, `${nextPlayer.name}'s turn.`],
     };
   }, []);
-  
+
   const drawCards = useCallback((playerId: string, numCards: number, state: GameState): GameState => {
     let { drawPile, discardPile, players } = state;
     const playerIndex = players.findIndex(p => p.id === playerId);
@@ -206,105 +118,211 @@ export function useUnoGame(userId?: string) {
     newState.log.push(`${currentPlayer.name} played a ${card.color !== 'wild' ? card.color : ''} ${card.value}.`);
     
     return nextTurn(newState, steps);
-  }, [drawCards, nextTurn, toast]);
-  
-  const selectColorForWild = useCallback(async (color: Color) => {
-    if (!wildCardToPlay || !gameState || !userId) return;
+  }, [ drawCards, nextTurn, toast]);
 
+  const selectColorForWild = useCallback(async (color: Color) => {
+    if (!wildCardToPlay || !gameState || !userId || !gameRef) return;
+  
     const player = gameState.players.find(p => p.id === userId);
     if (!player) return;
-    
+  
     const cardToPlay: Card = { ...wildCardToPlay, chosenColor: color };
-    
-    const newHand = player.hand.filter(c => c.value !== wildCardToPlay.value || c.color !== wildCardToPlay.color);
+  
     const playerIndex = gameState.players.findIndex(p => p.id === userId);
+    if (playerIndex === -1) return;
+  
     const newPlayers = [...gameState.players];
-    newPlayers[playerIndex] = { ...player, hand: newHand };
-
+    const newHand = newPlayers[playerIndex].hand.filter(c => !(c.value === wildCardToPlay.value && c.color === wildCardToPlay.color));
+    newPlayers[playerIndex] = { ...newPlayers[playerIndex], hand: newHand };
+  
     let newState: GameState = {
       ...gameState,
       players: newPlayers,
       discardPile: [...gameState.discardPile, cardToPlay],
+      isProcessingTurn: true,
     };
-    
+  
     setWildCardToPlay(null);
     toast({title: 'Color Chosen', description: `${player.name} chose ${color}.`});
-
+  
     if (newHand.length === 0) {
-      newState = { ...newState, status: 'finished', winner: player.name, log: [...newState.log, `${player.name} wins!`] };
+      newState = { ...newState, status: 'finished', winner: player.name, log: [...newState.log, `${player.name} wins!`], isProcessingTurn: false };
     } else {
+      // Pass the updated state to applyCardEffect
       newState = applyCardEffect(cardToPlay, newState);
     }
-    
-    if (gameRef) await setDocumentNonBlocking(gameRef, newState, { merge: true });
-
-  }, [wildCardToPlay, gameState, userId, applyCardEffect, toast, gameRef]);
-
+  
+    setDocumentNonBlocking(gameRef, newState, { merge: true });
+  
+  }, [wildCardToPlay, gameState, userId, toast, gameRef, applyCardEffect]);
+  
   const playCard = useCallback(async (card: Card) => {
-    if (!gameState || !gameState.status || gameState.currentPlayerId !== userId) return;
-
+    if (!gameState || gameState.status !== 'active' || gameState.currentPlayerId !== userId || isProcessingTurn || !gameRef) return;
+  
     const player = gameState.players.find(p => p.id === userId);
-    if(!player) return;
-    
+    if (!player) return;
+  
     const topCard = getTopCard(gameState.discardPile);
-    
+  
     if (!isCardPlayable(card, topCard)) {
       toast({ title: "Invalid Move", description: "You can't play that card.", variant: "destructive" });
       return;
     }
-    
+  
+    setDocumentNonBlocking(gameRef, { isProcessingTurn: true }, { merge: true });
+  
     if (card.isWild) {
       setWildCardToPlay(card);
+      // The rest of the turn logic is handled in selectColorForWild
       return;
     }
-
-    const newHand = player.hand.filter(c => c !== card);
+  
     const playerIndex = gameState.players.findIndex(p => p.id === userId);
     const newPlayers = [...gameState.players];
-    newPlayers[playerIndex] = { ...player, hand: newHand };
-
+    const newHand = newPlayers[playerIndex].hand.filter(c => c !== card);
+    newPlayers[playerIndex] = { ...newPlayers[playerIndex], hand: newHand };
+  
     let newState: GameState = {
       ...gameState,
       players: newPlayers,
       discardPile: [...gameState.discardPile, card],
     };
-
+  
     if (newHand.length === 0) {
-      newState = { ...newState, status: 'finished', winner: player.name, log: [...newState.log, `${player.name} wins!`] };
+      newState = { ...newState, status: 'finished', winner: player.name, log: [...newState.log, `${player.name} wins!`], isProcessingTurn: false };
     } else {
       if (newHand.length === 1) {
         toast({ title: "UNO!", description: `${player.name} has one card left!` });
       }
       newState = applyCardEffect(card, newState);
     }
-    
-    if(gameRef) await setDocumentNonBlocking(gameRef, newState, { merge: true });
-  }, [gameState, userId, applyCardEffect, toast, gameRef, selectColorForWild]);
+  
+    setDocumentNonBlocking(gameRef, { ...newState, isProcessingTurn: false }, { merge: true });
+  }, [gameState, userId, isProcessingTurn, applyCardEffect, toast, gameRef, selectColorForWild]);
+  
+  useEffect(() => {
+    if (lobbyId && lobbyPlayers && lobbyPlayers.length >= MIN_PLAYERS) {
+        const lobbyRef = doc(firestore, 'lobbies', lobbyId);
+        const gameIsActive = gameState?.status === 'active';
+        if (!gameIsActive) {
+            getDoc(lobbyRef).then(lobbySnap => {
+                if (lobbySnap.exists() && lobbySnap.data().hostId === userId) {
+                    startGame(lobbyPlayers);
+                }
+            });
+        }
+    }
+  }, [lobbyId, lobbyPlayers, userId, firestore, gameState?.status]);
 
+  const createGame = async (playerName: string) => {
+    if (!userId) return;
+    const newLobbyId = doc(collection(firestore, 'lobbies')).id;
+    setLobbyId(newLobbyId);
+
+    const hostPlayer: Player = { id: userId, name: playerName, hand: [], isAI: false };
+    
+    // Create lobby document
+    const lobbyRef = doc(firestore, 'lobbies', newLobbyId);
+    setDocumentNonBlocking(lobbyRef, {
+      id: newLobbyId,
+      createdAt: new Date().toISOString(),
+      hostId: userId,
+      status: 'waiting'
+    }, { merge: true });
+
+    // Add host to players subcollection
+    const playerRef = doc(firestore, 'lobbies', newLobbyId, 'players', userId);
+    setDocumentNonBlocking(playerRef, hostPlayer, { merge: true });
+  };
+
+  const joinGame = async (roomCode: string, playerName: string) => {
+    if (!userId) return;
+    
+    const newPlayer: Player = { id: userId, name: playerName, hand: [], isAI: false };
+    const playerRef = doc(firestore, 'lobbies', roomCode, 'players', userId);
+    setDocumentNonBlocking(playerRef, newPlayer, { merge: true });
+    setLobbyId(roomCode);
+  };
+
+  const startGame = useCallback(async (players: Player[]) => {
+    if (!lobbyId) return;
+      
+    const shuffledDeck = shuffle(createDeck());
+    
+    players.forEach(player => {
+      player.hand = shuffledDeck.splice(0, INITIAL_HAND_SIZE);
+    });
+  
+    let firstCardIndex = shuffledDeck.findIndex(c => !c.isWild);
+    if (firstCardIndex === -1) {
+      firstCardIndex = 0; // Fallback if all cards are wild
+    }
+    const firstCard = shuffledDeck.splice(firstCardIndex, 1)[0];
+  
+    const newGameState: GameState = {
+      id: lobbyId,
+      players: players,
+      drawPile: shuffledDeck,
+      discardPile: [firstCard],
+      currentPlayerId: players[0].id,
+      playDirection: 'clockwise',
+      status: 'active',
+      winner: null,
+      log: [`Game started! ${players[0].name}'s turn.`],
+      isProcessingTurn: false,
+    };
+  
+    const gameDocRef = doc(firestore, 'lobbies', lobbyId, 'games', lobbyId);
+    setDocumentNonBlocking(gameDocRef, newGameState, { merge: true });
+    
+    const lobbyDocRef = doc(firestore, 'lobbies', lobbyId);
+    setDocumentNonBlocking(lobbyDocRef, { status: 'active' }, { merge: true });
+  
+    setView('game');
+  }, [lobbyId, firestore]);
+  
   const drawCard = useCallback(async () => {
-    if (!gameState || !gameState.status || gameState.currentPlayerId !== userId) return;
+    if (!gameState || gameState.status !== 'active' || gameState.currentPlayerId !== userId || isProcessingTurn || !gameRef) return;
+    
+    setDocumentNonBlocking(gameRef, { isProcessingTurn: true }, { merge: true });
     
     let newState = drawCards(userId, 1, gameState);
     newState = nextTurn(newState);
 
-    if(gameRef) await setDocumentNonBlocking(gameRef, newState, { merge: true });
-  }, [gameState, userId, drawCards, nextTurn, gameRef]);
-
+    setDocumentNonBlocking(gameRef, { ...newState, isProcessingTurn: false }, { merge: true });
+  }, [gameState, userId, isProcessingTurn, drawCards, nextTurn, gameRef]);
+  
   useEffect(() => {
-    if (gameState?.status === 'finished') {
+    if (gameState?.status === 'finished' && view !== 'game-over') {
       setView('game-over');
-    } else if (gameState?.status === 'active') {
+    } else if (gameState?.status === 'active' && view !== 'game') {
       setView('game');
-    } else {
-      setView('lobby');
+    } else if (!gameState && lobbyId && view !== 'lobby') {
+        // Stay in lobby view if we have a lobbyId but no game state yet
+        setView('lobby');
+    } else if (!lobbyId && view !== 'lobby') {
+        setView('lobby');
     }
-  }, [gameState?.status]);
+  }, [gameState, view, lobbyId]);
   
   const resetGame = async () => {
-    if(lobbyId && gameRef) {
+    if(lobbyId) {
         const lobbyRef = doc(firestore, 'lobbies', lobbyId);
+        const gameDocRef = doc(firestore, 'lobbies', lobbyId, 'games', lobbyId);
+        
+        // This is non-blocking
+        deleteDocumentNonBlocking(gameDocRef);
+        // This is a blocking operation but should be quick
         await deleteDoc(lobbyRef);
-        await deleteDoc(gameRef);
+
+
+        // We also need to delete the players subcollection, which requires iterating
+        if (lobbyPlayers) {
+            for(const player of lobbyPlayers) {
+                const playerRef = doc(firestore, 'lobbies', lobbyId, 'players', player.id);
+                deleteDocumentNonBlocking(playerRef);
+            }
+        }
     }
     setLobbyId(null);
     setView('lobby');
@@ -313,6 +331,7 @@ export function useUnoGame(userId?: string) {
   return {
     gameState,
     view,
+    lobbyId,
     currentPlayer,
     isProcessingTurn,
     wildCardToPlay,
@@ -322,7 +341,6 @@ export function useUnoGame(userId?: string) {
     resetGame,
     joinGame,
     createGame,
-    lobbyId,
     startGame,
   };
 }
