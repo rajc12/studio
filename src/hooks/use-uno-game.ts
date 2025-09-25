@@ -12,8 +12,8 @@ import {
   isCardPlayable,
 } from '@/lib/uno-game';
 import { useToast } from './use-toast';
-import { doc, getFirestore, setDoc, deleteDoc } from 'firebase/firestore';
-import { useDoc, useCollection, useFirestore } from '@/firebase';
+import { doc, getFirestore, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
+import { useDoc, useCollection, useFirestore, useMemoFirebase } from '@/firebase';
 import { addDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase/non-blocking-updates';
 import { collection, query, where } from 'firebase/firestore';
 
@@ -29,10 +29,10 @@ export function useUnoGame(userId?: string) {
   const { toast } = useToast();
   const firestore = useFirestore();
 
-  const gameRef = lobbyId ? doc(firestore, 'games', lobbyId) : null;
+  const gameRef = useMemoFirebase(() => (lobbyId ? doc(firestore, 'games', lobbyId) : null), [lobbyId, firestore]);
   const { data: gameState } = useDoc<GameState>(gameRef);
 
-  const lobbyPlayersRef = lobbyId ? collection(firestore, 'lobbies', lobbyId, 'players') : null;
+  const lobbyPlayersRef = useMemoFirebase(() => (lobbyId ? collection(firestore, 'lobbies', lobbyId, 'players') : null), [lobbyId, firestore]);
   const { data: lobbyPlayers } = useCollection<Player>(lobbyPlayersRef);
 
   const currentPlayer = gameState ? gameState.players.find(p => p.id === gameState.currentPlayerId) : null;
@@ -62,16 +62,16 @@ export function useUnoGame(userId?: string) {
     
     // Create lobby document
     const lobbyRef = doc(firestore, 'lobbies', newLobbyId);
-    await setDocumentNonBlocking(lobbyRef, {
+    setDocumentNonBlocking(lobbyRef, {
       id: newLobbyId,
       createdAt: new Date().toISOString(),
       hostId: userId,
       status: 'waiting'
-    });
+    }, { merge: true });
 
     // Add host to players subcollection
     const playerRef = doc(firestore, 'lobbies', newLobbyId, 'players', userId);
-    await setDocumentNonBlocking(playerRef, hostPlayer);
+    setDocumentNonBlocking(playerRef, hostPlayer, { merge: true });
   };
 
   const joinGame = async (roomCode: string, playerName: string) => {
@@ -79,7 +79,7 @@ export function useUnoGame(userId?: string) {
     
     const newPlayer: Player = { id: userId, name: playerName, hand: [], isAI: false };
     const playerRef = doc(firestore, 'lobbies', roomCode, 'players', userId);
-    await setDocumentNonBlocking(playerRef, newPlayer);
+    setDocumentNonBlocking(playerRef, newPlayer, { merge: true });
     setLobbyId(roomCode);
   };
 
@@ -118,10 +118,10 @@ export function useUnoGame(userId?: string) {
     };
 
     const gameDocRef = doc(firestore, 'games', lobbyId);
-    await setDocumentNonBlocking(gameDocRef, newGameState);
+    setDocumentNonBlocking(gameDocRef, newGameState, { merge: true });
     
     const lobbyDocRef = doc(firestore, 'lobbies', lobbyId);
-    await setDocumentNonBlocking(lobbyDocRef, { status: 'active' }, { merge: true });
+    setDocumentNonBlocking(lobbyDocRef, { status: 'active' }, { merge: true });
 
     setView('game');
   }, [lobbyId, firestore]);
@@ -207,7 +207,7 @@ export function useUnoGame(userId?: string) {
     
     return nextTurn(newState, steps);
   }, [drawCards, nextTurn, toast]);
-
+  
   const selectColorForWild = useCallback(async (color: Color) => {
     if (!wildCardToPlay || !gameState || !userId) return;
 
@@ -236,12 +236,12 @@ export function useUnoGame(userId?: string) {
       newState = applyCardEffect(cardToPlay, newState);
     }
     
-    if (gameRef) await setDocumentNonBlocking(gameRef, newState);
+    if (gameRef) await setDocumentNonBlocking(gameRef, newState, { merge: true });
 
   }, [wildCardToPlay, gameState, userId, applyCardEffect, toast, gameRef]);
 
   const playCard = useCallback(async (card: Card) => {
-    if (!gameState || gameState.isGameOver || gameState.currentPlayerId !== userId) return;
+    if (!gameState || !gameState.status || gameState.currentPlayerId !== userId) return;
 
     const player = gameState.players.find(p => p.id === userId);
     if(!player) return;
@@ -278,16 +278,16 @@ export function useUnoGame(userId?: string) {
       newState = applyCardEffect(card, newState);
     }
     
-    if(gameRef) await setDocumentNonBlocking(gameRef, newState);
-  }, [gameState, userId, applyCardEffect, toast, gameRef]);
+    if(gameRef) await setDocumentNonBlocking(gameRef, newState, { merge: true });
+  }, [gameState, userId, applyCardEffect, toast, gameRef, selectColorForWild]);
 
   const drawCard = useCallback(async () => {
-    if (!gameState || gameState.isGameOver || gameState.currentPlayerId !== userId) return;
+    if (!gameState || !gameState.status || gameState.currentPlayerId !== userId) return;
     
     let newState = drawCards(userId, 1, gameState);
     newState = nextTurn(newState);
 
-    if(gameRef) await setDocumentNonBlocking(gameRef, newState);
+    if(gameRef) await setDocumentNonBlocking(gameRef, newState, { merge: true });
   }, [gameState, userId, drawCards, nextTurn, gameRef]);
 
   useEffect(() => {
@@ -301,11 +301,10 @@ export function useUnoGame(userId?: string) {
   }, [gameState?.status]);
   
   const resetGame = async () => {
-    if(lobbyId) {
+    if(lobbyId && gameRef) {
         const lobbyRef = doc(firestore, 'lobbies', lobbyId);
         await deleteDoc(lobbyRef);
-        const gameDocRef = doc(firestore, 'games', lobbyId);
-        await deleteDoc(gameDocRef);
+        await deleteDoc(gameRef);
     }
     setLobbyId(null);
     setView('lobby');
