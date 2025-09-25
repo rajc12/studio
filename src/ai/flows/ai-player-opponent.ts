@@ -100,9 +100,11 @@ const aiPlayerOpponentFlow = ai.defineFlow(
   },
   async input => {
     const {output} = await ai.generate({
-      prompt: aiPlayerOpponentPrompt.prompt,
+      prompt: {
+        text: aiPlayerOpponentPrompt.prompt,
+        input: input,
+      },
       model: 'googleai/gemini-2.5-flash',
-      input: input,
       output: {
         schema: AIPlayerOpponentOutputSchema,
       }

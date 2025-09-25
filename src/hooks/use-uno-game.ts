@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
@@ -141,6 +142,50 @@ export function useUnoGame() {
     return nextTurn(newState, steps);
   }, [drawCards, nextTurn, toast]);
 
+  const selectColorForWild = useCallback((color: Color) => {
+    if (!wildCardToPlay) return;
+
+    setGameState(prevState => {
+      if (!prevState) return prevState;
+
+      const playerIndex = prevState.currentPlayerIndex;
+      const player = prevState.players[playerIndex];
+      
+      // If the AI is making this choice, it might already be in the process of its turn.
+      // We check if it is still the AI's turn before proceeding.
+      if (player.isAI && prevState.currentPlayerIndex !== playerIndex) {
+          // It's not the AI's turn anymore, so we shouldn't proceed.
+          // This can happen if the game state updated while the AI was "thinking"
+          setWildCardToPlay(null);
+          return prevState;
+      }
+
+      const cardToPlay: Card = { ...wildCardToPlay, chosenColor: color };
+
+      const newHand = player.hand.filter(c => c.value !== wildCardToPlay.value || c.color !== wildCardToPlay.color);
+      const newPlayers = [...prevState.players];
+      newPlayers[playerIndex] = { ...player, hand: newHand };
+
+      const newState: GameState = {
+        ...prevState,
+        players: newPlayers,
+        discardPile: [...prevState.discardPile, cardToPlay],
+      };
+      
+      setWildCardToPlay(null);
+      
+      if (!player.isAI) {
+        toast({title: 'Color Chosen', description: `${player.name} chose ${color}.`});
+      }
+
+      if (newHand.length === 0) {
+        return { ...newState, isGameOver: true, winner: player, log: [...newState.log, `${player.name} wins!`] };
+      }
+
+      return applyCardEffect(cardToPlay, newState);
+    });
+  }, [wildCardToPlay, applyCardEffect, toast]);
+
   const playCard = useCallback((card: Card, playerIndex: number) => {
     setGameState(prevState => {
       if (!prevState || prevState.isGameOver || prevState.currentPlayerIndex !== playerIndex) return prevState;
@@ -155,6 +200,12 @@ export function useUnoGame() {
       
       if (card.isWild) {
         setWildCardToPlay(card);
+        // This is a special case for AI players. Human players select color via UI.
+        if (player.isAI) {
+          const colorsInHand = player.hand.filter(c => !c.isWild).map(c => c.color);
+          const mostCommonColor = colorsInHand.sort((a,b) => colorsInHand.filter(v => v===a).length - colorsInHand.filter(v => v===b).length).pop() || 'blue';
+          selectColorForWild(mostCommonColor);
+        }
         return prevState;
       }
 
@@ -178,40 +229,7 @@ export function useUnoGame() {
 
       return applyCardEffect(card, newState);
     });
-  }, [applyCardEffect, toast]);
-
-  const selectColorForWild = useCallback((color: Color) => {
-    if (!wildCardToPlay) return;
-
-    setGameState(prevState => {
-      if (!prevState) return prevState;
-
-      const playerIndex = prevState.currentPlayerIndex;
-      const player = prevState.players[playerIndex];
-
-      const cardToPlay: Card = { ...wildCardToPlay, chosenColor: color };
-
-      const newHand = player.hand.filter(c => c.value !== wildCardToPlay.value);
-      const newPlayers = [...prevState.players];
-      newPlayers[playerIndex] = { ...player, hand: newHand };
-
-      const newState: GameState = {
-        ...prevState,
-        players: newPlayers,
-        discardPile: [...prevState.discardPile, cardToPlay],
-      };
-      
-      setWildCardToPlay(null);
-      
-      toast({title: 'Color Chosen', description: `${player.name} chose ${color}.`});
-
-      if (newHand.length === 0) {
-        return { ...newState, isGameOver: true, winner: player, log: [...newState.log, `${player.name} wins!`] };
-      }
-
-      return applyCardEffect(cardToPlay, newState);
-    });
-  }, [wildCardToPlay, applyCardEffect, toast]);
+  }, [applyCardEffect, toast, selectColorForWild]);
 
   const onDrawCard = useCallback((playerIndex: number) => {
     setGameState(prevState => {
@@ -225,7 +243,6 @@ export function useUnoGame() {
   const runAIPlayer = useCallback(async (player: Player, state: GameState) => {
     setIsProcessingAI(true);
 
-    const otherPlayers = state.players.filter(p => p.id !== player.id);
     const nextPlayer = state.players[nextTurn(state, 1).currentPlayerIndex];
 
     const input: AIPlayerOpponentInput = {
@@ -248,26 +265,31 @@ export function useUnoGame() {
       // Simulate AI "thinking" time
       await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000));
       
-      if (output.cardToPlay) {
-        const cardToPlay = player.hand.find(c => c.value === output.cardToPlay?.value && (c.color === output.cardToPlay.color || c.isWild));
-        
-        if (cardToPlay) {
-          toast({ title: `AI plays a card`, description: `${player.name} played a ${cardToPlay.value}` });
-          if(cardToPlay.isWild) {
-            const colorsInHand = player.hand.filter(c => !c.isWild).map(c => (c as any).color);
-            const mostCommonColor = colorsInHand.sort((a,b) => colorsInHand.filter(v => v===a).length - colorsInHand.filter(v => v===b).length).pop() || 'blue';
-            setWildCardToPlay(cardToPlay);
-            selectColorForWild(mostCommonColor);
+      setGameState(currentState => {
+        if (!currentState || currentState.currentPlayerIndex !== state.currentPlayerIndex || currentState.isGameOver) {
+          // Game state has changed while AI was thinking, abort action.
+          return currentState;
+        }
+
+        if (output.cardToPlay) {
+          const cardToPlayInHand = currentState.players[currentState.currentPlayerIndex].hand.find(c => 
+            c.value === output.cardToPlay?.value && 
+            (c.color === output.cardToPlay.color || c.isWild)
+          );
+          
+          if (cardToPlayInHand && isCardPlayable(cardToPlayInHand, getTopCard(currentState.discardPile))) {
+            toast({ title: `AI plays a card`, description: `${player.name} played a ${cardToPlayInHand.value}` });
+            playCard(cardToPlayInHand, currentState.currentPlayerIndex);
           } else {
-            playCard(cardToPlay, state.currentPlayerIndex);
+             onDrawCard(currentState.currentPlayerIndex);
           }
         } else {
-           onDrawCard(state.currentPlayerIndex);
+          toast({ title: `AI draws a card`, description: `${player.name} is drawing a card.` });
+          onDrawCard(currentState.currentPlayerIndex);
         }
-      } else {
-        toast({ title: `AI draws a card`, description: `${player.name} is drawing a card.` });
-        onDrawCard(state.currentPlayerIndex);
-      }
+        return currentState; // playCard and onDrawCard will trigger their own re-renders with the new state
+      });
+
     } catch(e) {
        console.error("AI Error:", e);
        toast({ title: "AI Error", description: "The AI opponent encountered an error and will draw a card.", variant: "destructive" });
@@ -275,7 +297,7 @@ export function useUnoGame() {
     } finally {
         setIsProcessingAI(false);
     }
-  }, [playCard, onDrawCard, nextTurn, toast, selectColorForWild]);
+  }, [playCard, onDrawCard, nextTurn, toast]);
   
   // Game loop effect
   useEffect(() => {
@@ -306,3 +328,5 @@ export function useUnoGame() {
     resetGame,
   };
 }
+
+    
