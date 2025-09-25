@@ -11,7 +11,6 @@ export function GameContainer() {
   const { 
     view, 
     gameState, 
-    startGame, 
     playCard, 
     drawCard, 
     selectColorForWild, 

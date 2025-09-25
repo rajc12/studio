@@ -39,6 +39,7 @@ export type GameState = {
   status: 'waiting' | 'active' | 'finished';
   winner: string | null;
   log: string[];
+  isProcessingTurn?: boolean;
 };
 
 export function createDeck(): Card[] {
