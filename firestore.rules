@@ -1,0 +1,155 @@
+/**
+ * @fileOverview Firestore Security Rules for the UnoSync application.
+ *
+ * Core Philosophy:
+ * This ruleset enforces a combination of user-ownership and shared-access models.
+ * User data is strictly controlled by the owning user. Lobbies and their related data
+ * (games, chat messages) are protected by a collaborative access model, where
+ * membership is managed within the lobby document itself.
+ *
+ * Data Structure:
+ * - /users/{userId}: Stores user profiles; accessible only by the owning user.
+ * - /lobbies/{lobbyId}: Stores lobby information with a 'members' map (userId: role) for access control.
+ * - /lobbies/{lobbyId}/games/{gameId}: Stores game data, inheriting access from the parent lobby's membership.
+ * - /player_lobbies/{playerLobbyId}: Stores the association between users and lobbies, allowing verification of who is in a lobby.
+ * - /lobbies/{lobbyId}/chat_messages/{chatMessageId}: Stores chat messages, inheriting access from the parent lobby's membership.
+ *
+ * Key Security Decisions:
+ * - User listing is disabled for privacy.
+ * - Lobby membership is explicitly managed within the `members` map on each lobby document.
+ * - Subcollections inherit access control from their parent documents (lobbies).
+ *
+ * Denormalization for Authorization:
+ * - Lobby documents contain a 'members' map to track user roles and permissions within the lobby, avoiding complex lookups.
+ *
+ * Structural Segregation:
+ * - User-specific data is stored under /users/{userId}, ensuring that listing operations only return data for the requesting user.
+ */
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /**
+     * @description Controls access to user profile data.
+     * @path /users/{userId}
+     * @allow (create) - User with ID 'user123' can create their profile.
+     * @allow (get,update,delete) - User with ID 'user123' can access/modify their profile.
+     * @deny (create) - User with ID 'user456' cannot create a profile for 'user123'.
+     * @deny (get,update,delete) - User with ID 'user456' cannot access/modify 'user123's profile.
+     * @principle Enforces document ownership for writes.
+     */
+    match /users/{userId} {
+      function isOwner(userId) {
+        return request.auth.uid == userId;
+      }
+
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      allow get: if isOwner(userId) && isSignedIn();
+      allow list: if false; // User listing is not permitted.
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && isOwner(userId);
+      allow delete: if isSignedIn() && isOwner(userId);
+    }
+
+    /**
+     * @description Manages access to lobby documents.
+     * @path /lobbies/{lobbyId}
+     * @allow (create) - User creates a new lobby.
+     * @allow (get,list) - Any signed-in user can view lobby details and list lobbies.
+     * @allow (update,delete) - Only the host or a member with 'admin' role can modify/delete the lobby.
+     * @deny (update,delete) - A non-member cannot modify/delete the lobby.
+     * @principle Enforces collaborative access based on lobby membership and roles.
+     */
+    match /lobbies/{lobbyId} {
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      function isLobbyMember(lobbyId) {
+        return request.auth.uid in get(/databases/$(database)/documents/lobbies/$(lobbyId)).data.members;
+      }
+
+      function isLobbyAdmin(lobbyId) {
+        return get(/databases/$(database)/documents/lobbies/$(lobbyId)).data.members[request.auth.uid] == 'admin';
+      }
+
+      function isLobbyHost(lobbyId) {
+        return get(/databases/$(database)/documents/lobbies/$(lobbyId)).data.hostUserId == request.auth.uid;
+      }
+
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (isLobbyAdmin(lobbyId) || isLobbyHost(lobbyId));
+      allow delete: if isSignedIn() && (isLobbyAdmin(lobbyId) || isLobbyHost(lobbyId));
+    }
+
+    /**
+     * @description Manages access to game documents within a lobby.
+     * @path /lobbies/{lobbyId}/games/{gameId}
+     * @allow (get,list) - Any member of the lobby can view game details and list games within the lobby.
+     * @allow (create,update,delete) - Only members of the parent lobby can create, update, or delete games.
+     * @deny (create,update,delete) - A non-member cannot create, modify or delete game data.
+     * @principle Inherits collaborative access from the parent lobby's membership.
+     */
+    match /lobbies/{lobbyId}/games/{gameId} {
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      function isLobbyMember(lobbyId) {
+          return request.auth.uid in get(/databases/$(database)/documents/lobbies/$(lobbyId)).data.members;
+      }
+
+      allow get, list: if isSignedIn() && isLobbyMember(lobbyId);
+      allow create: if isSignedIn() && isLobbyMember(lobbyId);
+      allow update: if isSignedIn() && isLobbyMember(lobbyId);
+      allow delete: if isSignedIn() && isLobbyMember(lobbyId);
+    }
+
+    /**
+     * @description Manages access to player_lobbies documents.
+     * @path /player_lobbies/{playerLobbyId}
+     * @allow (create) - A user can create a PlayerLobby entry to join a lobby. The userId must match the authenticated user.
+     * @allow (get,list) - Anyone can read/list player_lobbies to see the associations.
+     * @allow (update,delete) - No one can update or delete a player_lobbies entry.
+     * @principle Enforces that a user can only create a PlayerLobby entry for themselves.
+     */
+    match /player_lobbies/{playerLobbyId} {
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.get("userId") == request.auth.uid;
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    /**
+     * @description Manages access to chat messages within a lobby.
+     * @path /lobbies/{lobbyId}/chat_messages/{chatMessageId}
+     * @allow (get,list) - Any member of the lobby can view chat messages.
+     * @allow (create) - Only members of the parent lobby can create chat messages. The userId must match the authenticated user.
+     * @allow (update,delete) - No one can update or delete chat messages (messages are immutable).
+     * @deny (create) - A non-member cannot create chat messages.
+     * @principle Inherits collaborative access from the parent lobby's membership.
+     */
+    match /lobbies/{lobbyId}/chat_messages/{chatMessageId} {
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      function isLobbyMember(lobbyId) {
+          return request.auth.uid in get(/databases/$(database)/documents/lobbies/$(lobbyId)).data.members;
+      }
+
+      allow get, list: if isSignedIn() && isLobbyMember(lobbyId);
+      allow create: if isSignedIn() && isLobbyMember(lobbyId) && request.resource.data.get("userId") == request.auth.uid;
+      allow update: if false;
+      allow delete: if false;
+    }
+  }
+}
