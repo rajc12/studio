@@ -1,13 +1,15 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Zap } from "lucide-react";
 
 interface DareDisplayProps {
     dareText: string;
+    onDone: () => void;
 }
 
-export function DareDisplay({ dareText }: DareDisplayProps) {
+export function DareDisplay({ dareText, onDone }: DareDisplayProps) {
     return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
             <Card className="w-full max-w-md animate-in fade-in zoom-in-90">
@@ -23,6 +25,9 @@ export function DareDisplay({ dareText }: DareDisplayProps) {
                         (Your turn continues. The dare is over after your turn.)
                     </p>
                 </CardContent>
+                <CardFooter>
+                    <Button onClick={onDone} className="w-full">Done</Button>
+                </CardFooter>
             </Card>
         </div>
     );

@@ -73,13 +73,18 @@ export function useUnoGame(userId?: string) {
     const nextPlayer = players[nextIndex];
     
     // Clear dare for the player whose turn just ended
-    const newDareState = (state.currentDare?.playerId === currentPlayerId) ? null : state.currentDare;
+    const newPlayers = state.players.map(p => {
+        if (p.id === currentPlayerId) {
+            return { ...p, currentDare: null };
+        }
+        return p;
+    });
 
     return {
       ...state,
+      players: newPlayers,
       currentPlayerId: nextPlayer.id,
       log: [...(state.log || []), `${nextPlayer.name}'s turn.`],
-      currentDare: newDareState,
     };
   }, []);
 
@@ -333,7 +338,10 @@ export function useUnoGame(userId?: string) {
     if (!gameState || !gameState.pendingAction || !gameRef) return;
     
     const { playerId, drawCount } = gameState.pendingAction;
-    let newState = { ...gameState };
+    let newState: GameState = { 
+        ...gameState,
+        players: [...gameState.players]
+    };
 
     if (choseDraw) {
         newState = drawCards(playerId, drawCount, newState);
@@ -346,7 +354,11 @@ export function useUnoGame(userId?: string) {
     } else {
         // Chose Dare
         const dare = DARES[Math.floor(Math.random() * DARES.length)];
-        newState.currentDare = { playerId, text: dare };
+        const playerIndex = newState.players.findIndex(p => p.id === playerId);
+        if (playerIndex !== -1) {
+            newState.players[playerIndex] = { ...newState.players[playerIndex], currentDare: { text: dare } };
+        }
+        
         toast({
             title: 'Dare Chosen!',
             description: `${newState.players.find(p => p.id === playerId)?.name}'s turn. Check out their dare!`,
@@ -452,7 +464,6 @@ export function useUnoGame(userId?: string) {
         log: [`Game started! ${players[0].name}'s turn.`],
         isProcessingTurn: false,
         pendingAction: null,
-        currentDare: null,
       };
 
       const gameDocRef = ref(db, `lobbies/${lobbyId}/game`);
@@ -495,6 +506,18 @@ export function useUnoGame(userId?: string) {
     lobbyId,
   ]);
 
+  const clearDare = useCallback(async () => {
+    if (!gameState || !userId || !gameRef) return;
+    const playerIndex = gameState.players.findIndex(p => p.id === userId);
+    if (playerIndex === -1 || !gameState.players[playerIndex].currentDare) return;
+
+    const newPlayers = [...gameState.players];
+    newPlayers[playerIndex] = { ...newPlayers[playerIndex], currentDare: null };
+
+    await set(ref(db, `lobbies/${lobbyId}/game/players`), newPlayers);
+  }, [gameState, userId, gameRef, lobbyId, db]);
+
+
   useEffect(() => {
     if (gameState?.status === 'finished' && view !== 'game-over') {
       setView('game-over');
@@ -533,5 +556,6 @@ export function useUnoGame(userId?: string) {
     createGame,
     startGame,
     handleDrawChoice,
+    clearDare,
   };
 }

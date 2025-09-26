@@ -24,6 +24,7 @@ export function GameContainer() {
     startGame,
     handleDrawChoice,
     lobbyPlayers,
+    clearDare,
   } = useUnoGame(user?.uid);
 
   switch (view) {
@@ -43,6 +44,7 @@ export function GameContainer() {
             userId={user.uid}
             lobbyId={lobbyId}
             onDrawChoice={handleDrawChoice}
+            onClearDare={clearDare}
           />
         );
       }

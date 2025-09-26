@@ -21,6 +21,7 @@ interface GameTableProps {
   userId: string;
   lobbyId: string | null;
   onDrawChoice: (choseDraw: boolean) => void;
+  onClearDare: () => void;
 }
 
 export function GameTable({
@@ -34,6 +35,7 @@ export function GameTable({
   userId,
   lobbyId,
   onDrawChoice,
+  onClearDare,
 }: GameTableProps) {
   const humanPlayer = gameState.players.find(p => p.id === userId);
   const opponents = gameState.players.filter(p => p.id !== userId);
@@ -56,7 +58,7 @@ export function GameTable({
   
   const isMyTurn = currentPlayer?.id === userId && !isProcessingTurn && !gameState.pendingAction;
   const showDrawOrDare = gameState.pendingAction?.type === 'draw-or-dare' && gameState.pendingAction.playerId === userId;
-  const currentDare = gameState.currentDare?.playerId === userId ? gameState.currentDare : null;
+  const currentDare = gameState.players.find(p => p.id === userId)?.currentDare;
 
   if (!humanPlayer) {
     return <div>Joining game...</div>
@@ -111,7 +113,7 @@ export function GameTable({
       )}
 
       {currentDare && (
-        <DareDisplay dareText={currentDare.text} />
+        <DareDisplay dareText={currentDare.text} onDone={onClearDare} />
       )}
     </div>
   );
