@@ -58,6 +58,23 @@ export function useUnoGame(userId?: string) {
     : null;
   const isProcessingTurn = gameState?.isProcessingTurn ?? false;
 
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+
+    if (view === 'game') {
+      window.addEventListener('beforeunload', handleBeforeUnload);
+    } else {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    }
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [view]);
+
   const nextTurn = useCallback((state: GameState, steps = 1): GameState => {
     const { players, playDirection, currentPlayerId } = state;
     const numPlayers = players.length;
@@ -239,7 +256,7 @@ export function useUnoGame(userId?: string) {
           winner: player.name,
           log: [...(newState.log || []), `${player.name} wins!`],
           isProcessingTurn: false,
-          players: newPlayers,
+          players: newPlayers.map(p => p.id === userId ? { ...p, hand: [] } : p),
         };
       } else {
         newState = applyCardEffect(cardToPlay, newState);
@@ -307,7 +324,7 @@ export function useUnoGame(userId?: string) {
           status: 'finished',
           winner: player.name,
           log: [...(newState.log || []), `${player.name} wins!`],
-          players: newPlayers, // Keep players data on win
+          players: newPlayers.map(p => p.id === userId ? { ...p, hand: [] } : p), // Keep players data on win
           isProcessingTurn: false,
         };
       } else {
