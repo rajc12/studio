@@ -235,11 +235,11 @@ export function useUnoGame(userId?: string) {
       if (newHand.length === 0) {
         newState = {
           ...newState,
-          players: newPlayers,
           status: 'finished',
           winner: player.name,
           log: [...(newState.log || []), `${player.name} wins!`],
           isProcessingTurn: false,
+          players: newPlayers,
         };
       } else {
         newState = applyCardEffect(cardToPlay, newState);
@@ -534,10 +534,18 @@ export function useUnoGame(userId?: string) {
   }, [gameState, view, lobbyId]);
 
   const exitGame = async () => {
-    if (lobbyId && db) {
-      const lobbyRef = ref(db, 'lobbies', lobbyId);
+    if (!lobbyId || !db) return;
+    
+    // Only host can delete the entire lobby.
+    if(lobbyPlayers?.find(p => p.id === userId)?.isHost) {
+      const lobbyRef = ref(db, `lobbies/${lobbyId}`);
       await remove(lobbyRef);
+    } else {
+      // Other players just remove themselves.
+      const playerRef = ref(db, `lobbies/${lobbyId}/players/${userId}`);
+      await remove(playerRef);
     }
+    
     setLobbyId(null);
     setView('lobby');
   };
