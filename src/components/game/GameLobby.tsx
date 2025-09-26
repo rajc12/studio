@@ -21,7 +21,7 @@ interface GameLobbyProps {
   onStartGame: (playerName: string) => void;
   onJoinGame: (roomCode: string, playerName: string) => void;
   lobbyId: string | null;
-  onManualStart: (players: Player[]) => void;
+  onManualStart: () => void;
   lobbyPlayers: Player[] | null;
   userId: string | undefined;
 }
@@ -64,9 +64,7 @@ export function GameLobby({
   };
 
   const handleStartGame = () => {
-    if (lobbyPlayers) {
-      onManualStart(lobbyPlayers);
-    }
+    onManualStart();
   };
 
   const isHost = lobbyPlayers?.find(p => p.id === userId)?.isHost;

@@ -389,14 +389,14 @@ export function useUnoGame(userId?: string) {
        return;
     }
 
-    const newPlayer: Player = { id: userId, name: playerName, hand: [], isAI: false };
+    const newPlayer: Player = { id: userId, name: playerName, hand: [], isAI: false, isHost: false };
     const playerRef = ref(db, `lobbies/${roomCode}/players/${userId}`);
     await set(playerRef, newPlayer);
     setLobbyId(roomCode);
   };
   
   const startGame = useCallback(
-    async (players: Player[]) => {
+    async () => {
       if (!lobbyId || !db || !userId) return;
       const lobbyRef = ref(db, `lobbies/${lobbyId}`);
       const lobbySnap = await get(lobbyRef);
@@ -405,11 +405,17 @@ export function useUnoGame(userId?: string) {
         toast({title: "Error", description: "Only the host can start the game.", variant: 'destructive'});
         return;
       }
+      
+      const playersRef = ref(db, `lobbies/${lobbyId}/players`);
+      const playersSnap = await get(playersRef);
+      const playersData = playersSnap.val();
+      const players: Player[] = playersData ? Object.keys(playersData).map(key => ({...playersData[key], id: key})) : [];
+
+
       if (players.length < MIN_PLAYERS) {
         toast({title: "Not enough players", description: `You need at least ${MIN_PLAYERS} players to start.`, variant: 'destructive'});
         return;
       }
-
 
       const shuffledDeck = shuffle(createDeck());
 
@@ -434,16 +440,15 @@ export function useUnoGame(userId?: string) {
         winner: null,
         log: [`Game started! ${players[0].name}'s turn.`],
         isProcessingTurn: false,
+        pendingAction: null,
       };
 
       const gameDocRef = ref(db, `lobbies/${lobbyId}/game`);
       await set(gameDocRef, newGameState);
 
       if (lobbySnap.exists()) {
-        await set(lobbyRef, { ...lobbySnap.val(), status: 'active' });
+        await set(ref(db, `lobbies/${lobbyId}/status`), 'active' );
       }
-
-      setView('game');
     },
     [lobbyId, db, userId, toast]
   );
