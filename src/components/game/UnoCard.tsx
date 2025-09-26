@@ -51,6 +51,17 @@ export function UnoCard({ card, isFaceDown = false, className, isPlayable = fals
       );
     }
   };
+  
+  const renderBottomLeft = () => {
+    const smallIconClasses = "w-4 h-4 text-white";
+    switch (card.value) {
+        case 'skip': return <SkipSymbol className={smallIconClasses} />;
+        case 'reverse': return <ReverseSymbol className={smallIconClasses} />;
+        case 'draw2': return <span className="font-bold text-white text-lg">+2</span>;
+        case 'wildDraw4': return <span className="font-bold text-white text-lg">+4</span>;
+        default: return null;
+    }
+  };
 
   return (
     <div className={cn(
@@ -62,6 +73,10 @@ export function UnoCard({ card, isFaceDown = false, className, isPlayable = fals
     )}>
       <div className="absolute top-1 left-2 text-2xl font-bold text-white select-none">{!card.isWild && card.value.length === 1 ? card.value : ''}</div>
       <div className="absolute bottom-1 right-2 text-2xl font-bold text-white select-none transform rotate-180">{!card.isWild && card.value.length === 1 ? card.value : ''}</div>
+
+      <div className="absolute bottom-1 left-2">
+        {renderBottomLeft()}
+      </div>
 
       <div className="absolute inset-0 flex items-center justify-center">
         {renderValue()}
