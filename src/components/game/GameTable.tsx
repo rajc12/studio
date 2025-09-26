@@ -1,6 +1,6 @@
 "use client";
 
-import { type GameState, type Player, type Card, type Color } from '@/lib/uno-game';
+import { type GameState, type Player, type Card, type Color, isCardPlayable } from '@/lib/uno-game';
 import { PlayerHand } from './PlayerHand';
 import { Opponent } from './Opponent';
 import { UnoCard } from './UnoCard';
@@ -9,6 +9,7 @@ import { GameInfo } from './GameInfo';
 import { GameActions } from './GameActions';
 import { DrawOrDareDialog } from './DrawOrDareDialog';
 import { DareDisplay } from './DareDisplay';
+import { cn } from '@/lib/utils';
 
 interface GameTableProps {
   gameState: GameState;
@@ -64,6 +65,8 @@ export function GameTable({
     return <div>Joining game...</div>
   }
 
+  const isDrawTheOnlyOption = isMyTurn && !humanPlayer.hand.some(card => isCardPlayable(card, topCard));
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-background p-4 flex flex-col perspective-1000">
       <GameInfo gameState={gameState} currentPlayer={currentPlayer} lobbyId={lobbyId} />
@@ -74,24 +77,26 @@ export function GameTable({
         </div>
       ))}
 
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex gap-4 transform-style-3d">
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex gap-4 transform-style-3d items-center">
+        {/* Discard Pile */}
+        <div className="relative">
+          {topCard && <UnoCard card={topCard} />}
+        </div>
         {/* Draw Pile */}
         <div className="relative">
           <button 
             onClick={() => isMyTurn && onDrawCard()}
             disabled={!isMyTurn}
-            className="rounded-lg transition-transform duration-300 hover:scale-105 disabled:cursor-not-allowed"
+            className={cn(
+                "rounded-lg transition-transform duration-300 hover:scale-105 disabled:cursor-not-allowed",
+                isDrawTheOnlyOption && "ring-4 ring-accent ring-offset-2 ring-offset-background"
+            )}
           >
             <UnoCard isFaceDown />
           </button>
            <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-secondary text-secondary-foreground text-xs font-bold px-2 py-1 rounded-full">
             {gameState.drawPile.length}
           </div>
-        </div>
-
-        {/* Discard Pile */}
-        <div className="relative">
-          {topCard && <UnoCard card={topCard} />}
         </div>
       </div>
       

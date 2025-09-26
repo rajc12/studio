@@ -28,14 +28,6 @@ export function GameActions({ onDrawCard, isMyTurn }: GameActionsProps) {
             >
                 UNO!
             </Button>
-            <Button 
-                variant="outline"
-                size="lg"
-                onClick={onDrawCard}
-                disabled={!isMyTurn}
-            >
-                Draw Card
-            </Button>
         </div>
     )
 }
