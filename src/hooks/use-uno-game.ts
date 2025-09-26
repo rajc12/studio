@@ -296,7 +296,7 @@ export function useUnoGame(userId?: string) {
           status: 'finished',
           winner: player.name,
           log: [...(newState.log || []), `${player.name} wins!`],
-          players: gameState.players, // Keep players data on win
+          players: newPlayers, // Keep players data on win
           isProcessingTurn: false,
         };
       } else {
@@ -320,7 +320,6 @@ export function useUnoGame(userId?: string) {
       gameRef,
       db,
       lobbyId,
-      selectColorForWild,
     ]
   );
 
@@ -337,18 +336,19 @@ export function useUnoGame(userId?: string) {
             description: `${newState.players.find(p => p.id === playerId)?.name} drew ${drawCount} cards.`,
         });
         // After drawing, the turn is skipped
-        newState = nextTurn(newState, 2); 
+        newState = nextTurn(newState); 
     } else {
         // Chose Dare
         toast({
             title: 'Dare Chosen!',
             description: `${newState.players.find(p => p.id === playerId)?.name} chose dare! Their turn.`,
         });
-        // The player who chose dare now takes their turn
+        // The player who chose dare now takes their turn, but doesn't skip the next player
         newState.currentPlayerId = playerId;
     }
     
     newState.pendingAction = null;
+    newState = nextTurn(newState);
     await set(gameRef, newState);
   };
 
