@@ -15,7 +15,6 @@ import { useToast } from './use-toast';
 import {
   ref,
   set,
-  push,
   remove,
   get,
   serverTimestamp,
@@ -32,6 +31,7 @@ export type GameView = 'lobby' | 'game' | 'game-over';
 
 const INITIAL_HAND_SIZE = 7;
 const MIN_PLAYERS = 2;
+const MAX_PLAYERS = 4;
 
 export function useUnoGame(userId?: string) {
   const [lobbyId, setLobbyId] = useState<string | null>(null);
@@ -354,14 +354,12 @@ export function useUnoGame(userId?: string) {
 
   const createGame = async (playerName: string) => {
     if (!userId || !db) return;
-    const lobbiesRef = ref(db, 'lobbies');
-    const newLobbyRef = push(lobbiesRef);
-    const newLobbyId = newLobbyRef.key;
-    if (!newLobbyId) return;
+    const newLobbyId = Math.floor(1000 + Math.random() * 9000).toString();
+    const newLobbyRef = ref(db, `lobbies/${newLobbyId}`);
 
     setLobbyId(newLobbyId);
 
-    const hostPlayer: Player = { id: userId, name: playerName, hand: [], isAI: false };
+    const hostPlayer: Player = { id: userId, name: playerName, hand: [], isAI: false, isHost: true };
 
     await set(newLobbyRef, {
       id: newLobbyId,
@@ -376,6 +374,20 @@ export function useUnoGame(userId?: string) {
 
   const joinGame = async (roomCode: string, playerName: string) => {
     if (!userId || !db) return;
+    const lobbyRef = ref(db, `lobbies/${roomCode}`);
+    const lobbySnap = await get(lobbyRef);
+    if (!lobbySnap.exists()) {
+      toast({ title: "Error", description: "Lobby not found.", variant: 'destructive' });
+      return;
+    }
+
+    const playersRef = ref(db, `lobbies/${roomCode}/players`);
+    const playersSnap = await get(playersRef);
+    const players = playersSnap.val() || {};
+    if (Object.keys(players).length >= MAX_PLAYERS) {
+       toast({ title: "Error", description: "Lobby is full.", variant: 'destructive' });
+       return;
+    }
 
     const newPlayer: Player = { id: userId, name: playerName, hand: [], isAI: false };
     const playerRef = ref(db, `lobbies/${roomCode}/players/${userId}`);
@@ -385,7 +397,19 @@ export function useUnoGame(userId?: string) {
   
   const startGame = useCallback(
     async (players: Player[]) => {
-      if (!lobbyId || !db) return;
+      if (!lobbyId || !db || !userId) return;
+      const lobbyRef = ref(db, `lobbies/${lobbyId}`);
+      const lobbySnap = await get(lobbyRef);
+      const lobbyData = lobbySnap.val();
+      if (lobbyData.hostId !== userId) {
+        toast({title: "Error", description: "Only the host can start the game.", variant: 'destructive'});
+        return;
+      }
+      if (players.length < MIN_PLAYERS) {
+        toast({title: "Not enough players", description: `You need at least ${MIN_PLAYERS} players to start.`, variant: 'destructive'});
+        return;
+      }
+
 
       const shuffledDeck = shuffle(createDeck());
 
@@ -415,29 +439,14 @@ export function useUnoGame(userId?: string) {
       const gameDocRef = ref(db, `lobbies/${lobbyId}/game`);
       await set(gameDocRef, newGameState);
 
-      const lobbyRef = ref(db, `lobbies/${lobbyId}`);
-      const lobbySnap = await get(lobbyRef);
       if (lobbySnap.exists()) {
         await set(lobbyRef, { ...lobbySnap.val(), status: 'active' });
       }
 
       setView('game');
     },
-    [lobbyId, db]
+    [lobbyId, db, userId, toast]
   );
-  
-  useEffect(() => {
-    if (lobbyId && lobbyPlayers && lobbyPlayers.length >= MIN_PLAYERS && db) {
-        const lobbyRef = ref(db, `lobbies/${lobbyId}`);
-        get(lobbyRef).then((lobbySnap) => {
-            const lobbyData = lobbySnap.val();
-            // Only the host should start the game, and only if it's waiting
-            if (lobbyData && lobbyData.hostId === userId && lobbyData.status === 'waiting') {
-                startGame(lobbyPlayers);
-            }
-        });
-    }
-}, [lobbyId, lobbyPlayers, userId, db, startGame]);
 
   const drawCard = useCallback(async () => {
     if (
@@ -495,6 +504,7 @@ export function useUnoGame(userId?: string) {
     gameState,
     view,
     lobbyId,
+    lobbyPlayers,
     currentPlayer,
     isProcessingTurn,
     wildCardToPlay,

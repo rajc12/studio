@@ -27,6 +27,7 @@ export type Player = {
   name: string;
   hand: Card[];
   isAI: boolean;
+  isHost?: boolean;
 };
 
 export type PendingAction = {
