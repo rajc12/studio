@@ -17,7 +17,7 @@ export function GameContainer() {
     wildCardToPlay, 
     currentPlayer, 
     isProcessingTurn, 
-    resetGame,
+    exitGame,
     joinGame,
     lobbyId,
     createGame,
@@ -51,7 +51,7 @@ export function GameContainer() {
       return <GameLobby onStartGame={createGame} onJoinGame={joinGame} lobbyId={lobbyId} onManualStart={startGame} lobbyPlayers={lobbyPlayers} userId={user?.uid} />;
     case 'game-over':
         if(gameState && gameState.winner) {
-            return <GameOverDialog winnerName={gameState.winner} onPlayAgain={resetGame} />;
+            return <GameOverDialog winnerName={gameState.winner} onNextRound={startGame} onExit={exitGame} />;
         }
         return null; // or some fallback
     default:

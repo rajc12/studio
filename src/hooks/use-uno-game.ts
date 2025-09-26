@@ -420,7 +420,9 @@ export function useUnoGame(userId?: string) {
       const lobbyRef = ref(db, `lobbies/${lobbyId}`);
       const lobbySnap = await get(lobbyRef);
       const lobbyData = lobbySnap.val();
-      if (lobbyData.hostId !== userId) {
+
+      // In game-over state, any player can start the next round. Otherwise, only host.
+      if (gameState?.status !== 'finished' && lobbyData.hostId !== userId) {
         toast({title: "Error", description: "Only the host can start the game.", variant: 'destructive'});
         return;
       }
@@ -473,7 +475,7 @@ export function useUnoGame(userId?: string) {
         await set(ref(db, `lobbies/${lobbyId}/status`), 'active' );
       }
     },
-    [lobbyId, db, userId, toast]
+    [lobbyId, db, userId, toast, gameState]
   );
 
   const drawCard = useCallback(async () => {
@@ -531,7 +533,7 @@ export function useUnoGame(userId?: string) {
     }
   }, [gameState, view, lobbyId]);
 
-  const resetGame = async () => {
+  const exitGame = async () => {
     if (lobbyId && db) {
       const lobbyRef = ref(db, 'lobbies', lobbyId);
       await remove(lobbyRef);
@@ -551,7 +553,7 @@ export function useUnoGame(userId?: string) {
     playCard,
     drawCard,
     selectColorForWild,
-    resetGame,
+    exitGame,
     joinGame,
     createGame,
     startGame,

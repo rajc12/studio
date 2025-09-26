@@ -3,20 +3,23 @@
 import {
   AlertDialog,
   AlertDialogAction,
+  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
 import { PartyPopper } from 'lucide-react';
 
 interface GameOverDialogProps {
   winnerName: string;
-  onPlayAgain: () => void;
+  onNextRound: () => void;
+  onExit: () => void;
 }
 
-export function GameOverDialog({ winnerName, onPlayAgain }: GameOverDialogProps) {
+export function GameOverDialog({ winnerName, onNextRound, onExit }: GameOverDialogProps) {
   return (
     <AlertDialog open={true}>
       <AlertDialogContent>
@@ -27,10 +30,13 @@ export function GameOverDialog({ winnerName, onPlayAgain }: GameOverDialogProps)
             Congratulations, <span className="font-bold text-primary">{winnerName}</span> is the winner!
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogAction onClick={onPlayAgain} className="w-full">
-            Play Again
-          </AlertDialogAction>
+        <AlertDialogFooter className="sm:justify-center gap-2">
+          <Button onClick={onNextRound} className="w-full sm:w-auto">
+            Next Round
+          </Button>
+          <Button onClick={onExit} variant="outline" className="w-full sm:w-auto">
+            Exit
+          </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
