@@ -1,0 +1,26 @@
+# UnoSync Application Change Log
+
+This file logs the major updates and fixes applied to the UnoSync application.
+
+## 1. Initial Multiplayer Implementation
+- Removed the original AI opponent.
+- Integrated Firebase for backend services.
+- Replaced Firestore with Firebase Realtime Database for data storage and synchronization.
+- Implemented a lobby system with room codes for players to create and join games.
+- Added anonymous authentication to identify unique players.
+- Modified game logic to support multiple human players in real-time.
+
+## 2. Bug Fix: Lobby Game Start
+- Corrected an issue where the game would get stuck on the "Waiting for Players" screen.
+- Adjusted the game start logic in the `useUnoGame` hook to correctly trigger when the minimum number of players join, ensuring the host initiates the game.
+
+## 3. Bug Fix: Game Over Crash
+- Fixed a TypeError that occurred when a player played their last card.
+- The issue was caused by the player's hand data being removed from the game state upon winning.
+- Updated the game logic to preserve the `players` array in the final game state to prevent crashes on the game over screen.
+
+## 4. Feature: Draw or Dare
+- Implemented a "Draw or Dare" choice when a `+2` or `+4` card is played.
+- Created a new `DrawOrDareDialog` component to present the choice to the player.
+- Updated the game state to include a `pendingAction` to manage this new game mechanic.
+- Modified the core game logic to pause for the player's decision and handle the outcome of their choice (either drawing cards or taking a "dare").
