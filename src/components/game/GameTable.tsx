@@ -65,7 +65,7 @@ export function GameTable({
     return <div>Joining game...</div>
   }
 
-  const isDrawTheOnlyOption = isMyTurn && !humanPlayer.hand.some(card => isCardPlayable(card, topCard));
+  const isDrawTheOnlyOption = isMyTurn && humanPlayer.hand && !humanPlayer.hand.some(card => isCardPlayable(card, topCard));
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-background p-4 flex flex-col perspective-1000">
