@@ -11,6 +11,7 @@ import {
   getTopCard,
   isCardPlayable,
 } from '@/lib/uno-game';
+import { DARES } from '@/lib/dares';
 import { useToast } from './use-toast';
 import {
   ref,
@@ -70,10 +71,15 @@ export function useUnoGame(userId?: string) {
     }
 
     const nextPlayer = players[nextIndex];
+    
+    // Clear dare for the player whose turn just ended
+    const newDareState = (state.currentDare?.playerId === currentPlayerId) ? null : state.currentDare;
+
     return {
       ...state,
       currentPlayerId: nextPlayer.id,
       log: [...(state.log || []), `${nextPlayer.name}'s turn.`],
+      currentDare: newDareState,
     };
   }, []);
 
@@ -339,16 +345,17 @@ export function useUnoGame(userId?: string) {
         newState = nextTurn(newState); 
     } else {
         // Chose Dare
+        const dare = DARES[Math.floor(Math.random() * DARES.length)];
+        newState.currentDare = { playerId, text: dare };
         toast({
             title: 'Dare Chosen!',
-            description: `${newState.players.find(p => p.id === playerId)?.name} chose dare! Their turn.`,
+            description: `${newState.players.find(p => p.id === playerId)?.name}'s turn. Check out their dare!`,
         });
-        // The player who chose dare now takes their turn, but doesn't skip the next player
+        // The player who chose dare now takes their turn
         newState.currentPlayerId = playerId;
     }
     
     newState.pendingAction = null;
-    newState = nextTurn(newState);
     await set(gameRef, newState);
   };
 
@@ -412,8 +419,12 @@ export function useUnoGame(userId?: string) {
       const players: Player[] = playersData ? Object.keys(playersData).map(key => ({...playersData[key], id: key})) : [];
 
 
-      if (players.length < MIN_PLAYERS) {
-        toast({title: "Not enough players", description: `You need at least ${MIN_PLAYERS} players to start.`, variant: 'destructive'});
+      if (players.length < MIN_PLAYERS || players.length > MAX_PLAYERS) {
+        toast({
+          title: 'Invalid Number of Players',
+          description: `You need ${MIN_PLAYERS}-${MAX_PLAYERS} players to start.`,
+          variant: 'destructive',
+        });
         return;
       }
 
@@ -441,6 +452,7 @@ export function useUnoGame(userId?: string) {
         log: [`Game started! ${players[0].name}'s turn.`],
         isProcessingTurn: false,
         pendingAction: null,
+        currentDare: null,
       };
 
       const gameDocRef = ref(db, `lobbies/${lobbyId}/game`);

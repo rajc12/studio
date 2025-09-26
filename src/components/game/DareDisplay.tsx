@@ -1,0 +1,29 @@
+"use client";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Zap } from "lucide-react";
+
+interface DareDisplayProps {
+    dareText: string;
+}
+
+export function DareDisplay({ dareText }: DareDisplayProps) {
+    return (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+            <Card className="w-full max-w-md animate-in fade-in zoom-in-90">
+                <CardHeader className="items-center text-center">
+                    <Zap className="w-12 h-12 text-yellow-400 mb-2" />
+                    <CardTitle className="text-3xl font-extrabold text-primary">You've Been Dared!</CardTitle>
+                </CardHeader>
+                <CardContent className="text-center">
+                    <p className="text-xl font-medium text-foreground">
+                        {dareText}
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-4">
+                        (Your turn continues. The dare is over after your turn.)
+                    </p>
+                </CardContent>
+            </Card>
+        </div>
+    );
+}

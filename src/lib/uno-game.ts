@@ -48,6 +48,7 @@ export type GameState = {
   log: string[];
   isProcessingTurn?: boolean;
   pendingAction?: PendingAction | null;
+  currentDare?: { playerId: string; text: string } | null;
 };
 
 export function createDeck(): Card[] {

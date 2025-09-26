@@ -8,6 +8,7 @@ import { ColorPicker } from './ColorPicker';
 import { GameInfo } from './GameInfo';
 import { GameActions } from './GameActions';
 import { DrawOrDareDialog } from './DrawOrDareDialog';
+import { DareDisplay } from './DareDisplay';
 
 interface GameTableProps {
   gameState: GameState;
@@ -55,6 +56,7 @@ export function GameTable({
   
   const isMyTurn = currentPlayer?.id === userId && !isProcessingTurn && !gameState.pendingAction;
   const showDrawOrDare = gameState.pendingAction?.type === 'draw-or-dare' && gameState.pendingAction.playerId === userId;
+  const currentDare = gameState.currentDare?.playerId === userId ? gameState.currentDare : null;
 
   if (!humanPlayer) {
     return <div>Joining game...</div>
@@ -106,6 +108,10 @@ export function GameTable({
           drawCount={gameState.pendingAction.drawCount}
           onChoice={onDrawChoice}
         />
+      )}
+
+      {currentDare && (
+        <DareDisplay dareText={currentDare.text} />
       )}
     </div>
   );
