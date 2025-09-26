@@ -98,7 +98,7 @@ export function useUnoGame(userId?: string) {
         if (card) drawnCards.push(card);
       }
 
-      const newHand = [...player.hand, ...drawnCards];
+      const newHand = [...(player.hand || []), ...drawnCards];
       const newPlayers = [...players];
       newPlayers[playerIndex] = { ...player, hand: newHand };
 
@@ -120,16 +120,17 @@ export function useUnoGame(userId?: string) {
         (p) => p.id === newState.currentPlayerId
       );
       if (!currentPlayer) return newState;
-
+  
       let steps = 1;
-
+      const nextPlayerId = nextTurn(newState).currentPlayerId;
+  
       switch (card.value) {
         case 'skip':
           steps = 2;
           toast({
             title: 'Player Skipped!',
             description: `${
-              newState.players.find((p) => p.id === nextTurn(newState).currentPlayerId)
+              newState.players.find((p) => p.id === nextTurn(newState, 2).currentPlayerId)
                 ?.name
             } was skipped.`,
           });
@@ -145,41 +146,53 @@ export function useUnoGame(userId?: string) {
           });
           break;
         case 'draw2':
-          const nextPlayerIdD2 = nextTurn(newState).currentPlayerId;
-          newState = drawCards(nextPlayerIdD2, 2, newState);
-          steps = 2;
+          newState.pendingAction = {
+            playerId: nextPlayerId,
+            type: 'draw-or-dare',
+            drawCount: 2,
+          };
           toast({
             title: 'Draw 2!',
             description: `${
-              newState.players.find((p) => p.id === nextPlayerIdD2)?.name
-            } draws 2 cards and is skipped.`,
+              newState.players.find((p) => p.id === nextPlayerId)?.name
+            } must draw or dare.`,
           });
+          // Don't advance the turn here, wait for player's choice
+          steps = 0;
           break;
         case 'wildDraw4':
-          const nextPlayerIdD4 = nextTurn(newState).currentPlayerId;
-          newState = drawCards(nextPlayerIdD4, 4, newState);
-          steps = 2;
+          newState.pendingAction = {
+            playerId: nextPlayerId,
+            type: 'draw-or-dare',
+            drawCount: 4,
+          };
           toast({
             title: 'Wild Draw 4!',
             description: `${
-              newState.players.find((p) => p.id === nextPlayerIdD4)?.name
-            } draws 4 cards and is skipped.`,
+              newState.players.find((p) => p.id === nextPlayerId)?.name
+            } must draw or dare.`,
           });
+          // Don't advance the turn here, wait for player's choice
+          steps = 0;
           break;
       }
-
+  
       newState.log = [
         ...(newState.log || []),
         `${currentPlayer.name} played a ${
           card.color !== 'wild' ? card.color : ''
         } ${card.value}.`,
       ];
-
-      return nextTurn(newState, steps);
+      
+      // Only advance turn if there's no pending action
+      if (steps > 0) {
+        return nextTurn(newState, steps);
+      }
+      return newState;
     },
-    [drawCards, nextTurn, toast]
+    [nextTurn, toast]
   );
-  
+
   const selectColorForWild = useCallback(
     async (color: Color) => {
       if (!wildCardToPlay || !gameState || !userId || !gameRef) return;
@@ -193,7 +206,7 @@ export function useUnoGame(userId?: string) {
       if (playerIndex === -1) return;
 
       const newPlayers = [...gameState.players];
-      const newHand = newPlayers[playerIndex].hand.filter(
+      const newHand = (newPlayers[playerIndex].hand || []).filter(
         (c) => !(c.value === wildCardToPlay.value && c.color === wildCardToPlay.color)
       );
       newPlayers[playerIndex] = { ...newPlayers[playerIndex], hand: newHand };
@@ -220,6 +233,7 @@ export function useUnoGame(userId?: string) {
       } else {
         newState = applyCardEffect(cardToPlay, newState);
       }
+      
       newState.isProcessingTurn = false;
       await set(gameRef, newState);
     },
@@ -262,8 +276,8 @@ export function useUnoGame(userId?: string) {
       const playerIndex = gameState.players.findIndex((p) => p.id === userId);
       const newPlayers = [...gameState.players];
       
-      const cardInHandIndex = newPlayers[playerIndex].hand.findIndex(c => c.color === card.color && c.value === card.value);
-      const newHand = [...newPlayers[playerIndex].hand];
+      const cardInHandIndex = (newPlayers[playerIndex].hand || []).findIndex(c => c.color === card.color && c.value === card.value);
+      const newHand = [...(newPlayers[playerIndex].hand || [])];
       if(cardInHandIndex > -1) {
         newHand.splice(cardInHandIndex, 1);
       }
@@ -279,10 +293,10 @@ export function useUnoGame(userId?: string) {
       if (newHand.length === 0) {
         newState = {
           ...newState,
-          players: newPlayers,
           status: 'finished',
           winner: player.name,
           log: [...(newState.log || []), `${player.name} wins!`],
+          players: gameState.players, // Keep players data on win
           isProcessingTurn: false,
         };
       } else {
@@ -309,6 +323,34 @@ export function useUnoGame(userId?: string) {
       selectColorForWild,
     ]
   );
+
+  const handleDrawChoice = async (choseDraw: boolean) => {
+    if (!gameState || !gameState.pendingAction || !gameRef) return;
+    
+    const { playerId, drawCount } = gameState.pendingAction;
+    let newState = { ...gameState };
+
+    if (choseDraw) {
+        newState = drawCards(playerId, drawCount, newState);
+        toast({
+            title: 'Cards Drawn!',
+            description: `${newState.players.find(p => p.id === playerId)?.name} drew ${drawCount} cards.`,
+        });
+        // After drawing, the turn is skipped
+        newState = nextTurn(newState, 2); 
+    } else {
+        // Chose Dare
+        toast({
+            title: 'Dare Chosen!',
+            description: `${newState.players.find(p => p.id === playerId)?.name} chose dare! Their turn.`,
+        });
+        // The player who chose dare now takes their turn
+        newState.currentPlayerId = playerId;
+    }
+    
+    newState.pendingAction = null;
+    await set(gameRef, newState);
+  };
 
   const createGame = async (playerName: string) => {
     if (!userId || !db) return;
@@ -404,7 +446,8 @@ export function useUnoGame(userId?: string) {
       gameState.currentPlayerId !== userId ||
       isProcessingTurn ||
       !gameRef ||
-      !db
+      !db ||
+      gameState.pendingAction
     )
       return;
 
@@ -462,5 +505,6 @@ export function useUnoGame(userId?: string) {
     joinGame,
     createGame,
     startGame,
+    handleDrawChoice,
   };
 }

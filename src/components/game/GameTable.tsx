@@ -8,6 +8,7 @@ import { ColorPicker } from './ColorPicker';
 import { GameInfo } from './GameInfo';
 import { GameActions } from './GameActions';
 import { GameChat } from './GameChat';
+import { DrawOrDareDialog } from './DrawOrDareDialog';
 
 interface GameTableProps {
   gameState: GameState;
@@ -19,6 +20,7 @@ interface GameTableProps {
   isProcessingTurn: boolean;
   userId: string;
   lobbyId: string | null;
+  onDrawChoice: (choseDraw: boolean) => void;
 }
 
 export function GameTable({
@@ -31,6 +33,7 @@ export function GameTable({
   isProcessingTurn,
   userId,
   lobbyId,
+  onDrawChoice,
 }: GameTableProps) {
   const humanPlayer = gameState.players.find(p => p.id === userId);
   const opponents = gameState.players.filter(p => p.id !== userId);
@@ -51,7 +54,8 @@ export function GameTable({
     return '';
   };
   
-  const isMyTurn = currentPlayer?.id === userId && !isProcessingTurn;
+  const isMyTurn = currentPlayer?.id === userId && !isProcessingTurn && !gameState.pendingAction;
+  const showDrawOrDare = gameState.pendingAction?.type === 'draw-or-dare' && gameState.pendingAction.playerId === userId;
 
   if (!humanPlayer) {
     return <div>Joining game...</div>
@@ -97,6 +101,13 @@ export function GameTable({
 
       {wildCardToPlay && currentPlayer?.id === userId && (
         <ColorPicker onSelectColor={onSelectColor} />
+      )}
+      
+      {showDrawOrDare && gameState.pendingAction && (
+        <DrawOrDareDialog 
+          drawCount={gameState.pendingAction.drawCount}
+          onChoice={onDrawChoice}
+        />
       )}
     </div>
   );

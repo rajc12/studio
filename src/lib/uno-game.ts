@@ -29,6 +29,12 @@ export type Player = {
   isAI: boolean;
 };
 
+export type PendingAction = {
+  playerId: string;
+  type: 'draw-or-dare';
+  drawCount: number;
+};
+
 export type GameState = {
   id: string;
   players: Player[];
@@ -40,6 +46,7 @@ export type GameState = {
   winner: string | null;
   log: string[];
   isProcessingTurn?: boolean;
+  pendingAction?: PendingAction | null;
 };
 
 export function createDeck(): Card[] {
